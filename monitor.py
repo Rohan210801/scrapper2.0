@@ -6,7 +6,7 @@ import os
 import requests 
 from requests_toolbelt import sessions
 
-# --- CONFIGURATION (TEST MODE) ---
+# --- CONFIGURATION (PRODUCTION MODE) ---
 
 # 1. Email Details (Read securely from GitHub Secrets)
 SMTP_SERVER = "smtp.gmail.com"  
@@ -20,28 +20,29 @@ PROXY_HOST = os.environ.get("PROXY_HOST")
 PROXY_USER = os.environ.get("PROXY_USER")
 PROXY_PASS = os.environ.get("PROXY_PASS")
 
-# 3. Target Details (Modified for Test)
+# 3. Target Details (FINAL PRODUCTION SEARCH TERMS)
 TARGETS = [
     {
-        "url": "https://www.livexscores.com/?p=4&sport=tennis", # In Play page
+        "url": "https://www.livexscores.com/?p=4&sport=tennis", 
         "terms": ["- ret."], 
         "type": "Retirement (In Play)"
     },
     {
-        "url": "https://www.livexscores.com/?p=3&sport=tennis", # Finished page
-        # --- FINAL TEST FIX: Searching for the exact RAW HTML substring ---
-        "terms": ["Stojanovic Nina</a> (SRB) [164] - ret."], 
-        "type": "Definitive Status (Finished TEST)"
+        "url": "https://www.livexscores.com/?p=3&sport=tennis", 
+        "terms": ["- ret.", "- wo."], # FINAL PRODUCTION TERMS
+        "type": "Definitive Status (Finished)"
     }
 ]
 
 
-# --- EMAIL ALERT FUNCTIONS (Unchanged) ---
+# --- EMAIL ALERT FUNCTIONS ---
 
 def send_email_alert(subject, body):
+    # This function is the only one that can cause a delay or failure in delivery
+    
     if not all([SENDER_EMAIL, SENDER_PASSWORD, RECEIVER_EMAIL]):
         print("ERROR: Email credentials missing. Check GitHub Secrets.")
-        return
+        return False
 
     try:
         msg = MIMEMultipart()
@@ -65,17 +66,21 @@ def send_email_alert(subject, body):
         """
         msg.attach(MIMEText(html_body, 'html'))
         
+        print(f"SMTP: Attempting connection to send email...")
         # Connect to the SMTP server and send
         with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
             server.starttls()
             server.login(SENDER_EMAIL, SENDER_PASSWORD)
             server.sendmail(SENDER_EMAIL, RECEIVER_EMAIL, msg.as_string())
-            print(f"Email alert sent successfully for: {subject}")
+            print(f"SMTP SUCCESS: Email queued for delivery for subject: {subject}")
+            return True
 
     except smtplib.SMTPAuthenticationError:
-        print("CRITICAL ERROR: SMTP Authentication Failed. Check App Password/Sender Email.")
+        print("CRITICAL ERROR: SMTP Authentication Failed. (Bad App Password)")
+        return False
     except Exception as e:
-        print(f"An error occurred during email sending: {e}")
+        print(f"ERROR: Failed to send email: {e}")
+        return False
 
 
 # --- CORE MONITORING LOGIC (Using Proxy) ---
@@ -83,7 +88,7 @@ def send_email_alert(subject, body):
 def create_proxied_session():
     """Creates a requests session configured with the proxy credentials."""
     if not all([PROXY_HOST, PROXY_USER, PROXY_PASS]):
-        print("CRITICAL PROXY ERROR: Proxy credentials missing. Cannot start proxied session. Falling back to direct connection.")
+        print("CRITICAL PROXY ERROR: Proxy credentials missing. Cannot start proxied session.")
         return requests.Session() 
 
     # Construct the authenticated proxy URL
@@ -118,8 +123,10 @@ def monitor_page(session, target: dict):
     }
     
     try:
+        print(f"NETWORK: Fetching {target['type']} data from {clean_url}...")
+        
         # Use the passed session object for the request
-        response = session.get(clean_url, headers=headers, timeout=15) # Increased timeout to 15s for proxy overhead
+        response = session.get(clean_url, headers=headers, timeout=15) 
         response.raise_for_status() 
         
         # The request succeeded (200 status). Now check content.
@@ -128,10 +135,8 @@ def monitor_page(session, target: dict):
         
         # Check for each target term in the raw text
         for term in target['terms']:
-            # The search is now looking for a raw HTML substring
-            if term in page_text: 
+            if term in page_text:
                 
-                # NOTE: This searches the raw HTML file content (CTRL+F equivalent)
                 context_lines = [line.strip() for line in page_text.split('\n') if term in line]
 
                 found_terms.append({
@@ -140,6 +145,7 @@ def monitor_page(session, target: dict):
                 })
         
         if found_terms:
+            print(f"DETECTION SUCCESS: Found required term(s) in {target['type']} page.")
             
             email_body = ""
             subject_terms = []
@@ -157,14 +163,14 @@ def monitor_page(session, target: dict):
             send_email_alert(subject, email_body)
             return True
         else:
+            print(f"DETECTION FAILURE: No targets found in {target['type']} page.")
             return False
 
     except requests.exceptions.RequestException as e:
-        # Log the specific network/403 error
-        print(f"ERROR during proxied scrape of {clean_url}: {e}")
+        print(f"NETWORK ERROR: Failed to fetch {clean_url}: {e}")
         return False
     except Exception as e:
-        print(f"ERROR during processing of {clean_url}: {e}")
+        print(f"PROCESSING ERROR: during {target['type']} processing: {e}")
         return False
 
 
@@ -176,13 +182,14 @@ def main():
     # Create the proxied session ONCE
     session = create_proxied_session()
     
-    print(f"--- Starting TEST PROXY RUN: {NUM_CHECKS} checks for Stojanovic Nina ---")
+    print(f"--- Starting PRODUCTION PROXY RUN: {NUM_CHECKS} checks with a {SLEEP_INTERVAL}-second target interval. ---")
     
     for i in range(1, NUM_CHECKS + 1):
         start_time = time.time()
         print(f"\n--- RUN {i}/{NUM_CHECKS} ---")
         
-        # We only run the Finished Test page check in this mode
+        # Monitor BOTH targets in production mode
+        monitor_page(session, TARGETS[0])
         monitor_page(session, TARGETS[1]) 
 
         end_time = time.time()
@@ -191,12 +198,12 @@ def main():
         time_to_sleep = SLEEP_INTERVAL - check_duration
         
         if time_to_sleep > 0 and i < NUM_CHECKS:
-            print(f"Check took {check_duration:.2f} seconds. Sleeping for {time_to_sleep:.2f} seconds...")
+            print(f"CYCLE INFO: Sleeping for {time_to_sleep:.2f} seconds...")
             time.sleep(time_to_sleep)
         elif i < NUM_CHECKS:
-             print(f"Check took {check_duration:.2f} seconds. No need to sleep.")
+             print(f"CYCLE INFO: Check took {check_duration:.2f}s. No need to sleep.")
 
-    print(f"--- TEST PROXY RUN COMPLETED. Check inbox for email. ---")
+    print(f"--- PRODUCTION PROXY RUN COMPLETED. ---")
 
 
 if __name__ == "__main__":
