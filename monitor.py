@@ -23,20 +23,19 @@ TARGETS = [
     },
     {
         "url": "https://www.livexscores.com/?p=3&sport=tennis", # Finished page
-        "terms": ["- ret.", "- wo."], # Look for both on the definitive score page
-        "type": "Definitive Status (Finished)"
+        "terms": ["Stojanovic Nina"], # <--- ***TEMPORARY TEST TERM***
+        "type": "Definitive Status (Finished TEST)"
     }
 ]
 
 # --- GLOBAL TIMEOUT CONSTANTS ---
-BROWSER_LAUNCH_TIMEOUT = 60000 
-NAVIGATION_TIMEOUT = 60000      
-# FINAL FIX: Target the main container ID where the dynamic scores are loaded, 
-# which is typically more stable than a generic table tag.
-SCORES_CONTAINER_SELECTOR = "#container" 
+BROWSER_LAUNCH_TIMEOUT = 60000  # 60 seconds to launch the browser
+NAVIGATION_TIMEOUT = 60000      # 60 seconds to navigate to a page
+# FINAL FIX: Use the specific, non-changing ID from the HTML context you provided
+SCORES_CONTAINER_SELECTOR = "#allzapasy" 
 
 
-# --- EMAIL ALERT FUNCTIONS (Unchanged) ---
+# --- EMAIL ALERT FUNCTIONS ---
 
 def send_email_alert(subject, body):
     if not all([SENDER_EMAIL, SENDER_PASSWORD, RECEIVER_EMAIL]):
@@ -90,9 +89,8 @@ def monitor_page(browser, target: dict):
     try:
         page.goto(target['url'], wait_until="domcontentloaded", timeout=NAVIGATION_TIMEOUT)
         
-        # --- FIX: Wait for the main container element to load and stabilize ---
-        # This is more robust than waiting for a generic table tag.
-        page.wait_for_selector(SCORES_CONTAINER_SELECTOR, timeout=20000) # Increased to 20s
+        # --- FINAL STABILITY FIX: Wait for the unique #allzapasy ID to confirm load ---
+        page.wait_for_selector(SCORES_CONTAINER_SELECTOR, timeout=20000) 
         print(f"Loaded and verified content container for {target['type']}.")
         
         found_terms = []
@@ -165,7 +163,8 @@ def main(playwright: Playwright):
         print(f"\n--- RUN {i}/{NUM_CHECKS} ---")
         
         for target in TARGETS:
-            monitor_page(browser, target)
+            # Pass the run index to the monitor page function for logging
+            monitor_page(browser, target) 
 
         end_time = time.time()
         check_duration = end_time - start_time
