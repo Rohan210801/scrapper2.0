@@ -71,11 +71,9 @@ def send_email_alert(subject, body):
 
 # --- CORE MONITORING LOGIC ---
 
-def monitor_page(playwright: Playwright, target: dict):
-    # Use Chromium for the headless browser
-    # NOTE on Cookies: Creating a new browser and context for every check 
-    # ensures a fresh session with no accumulated cookies, preventing site crashes.
-    browser = playwright.chromium.launch() 
+def monitor_page(browser, target: dict):
+    # NOTE on Cookies: Creating a new browser context for every check 
+    # ensures a fresh session with no accumulated cookies.
     context = browser.new_context()
     page = context.new_page()
 
@@ -116,8 +114,8 @@ def monitor_page(playwright: Playwright, target: dict):
         print(f"ERROR during Playwright scrape of {target['url']}: {e}")
         return False
     finally:
-        # Ensure the browser is closed to free up resources
-        browser.close()
+        # Close the context/page, but keep the main browser open
+        context.close()
 
 
 def main():
@@ -127,15 +125,19 @@ def main():
     
     with sync_playwright() as playwright:
         
+        # --- OPTIMIZATION FIX: Launch browser ONCE per job ---
+        browser = playwright.chromium.launch()
+        print(f"--- Browser launched once for the job. ---")
+        
         print(f"--- Starting {NUM_CHECKS} checks with a {SLEEP_INTERVAL}-second interval. ---")
         
         for i in range(1, NUM_CHECKS + 1):
             start_time = time.time()
             print(f"\n--- RUN {i}/{NUM_CHECKS} ---")
             
-            # Run checks on both pages
+            # Run checks on both pages using the single launched browser
             for target in TARGETS:
-                monitor_page(playwright, target)
+                monitor_page(browser, target)
 
             end_time = time.time()
             check_duration = end_time - start_time
@@ -149,7 +151,9 @@ def main():
             elif i < NUM_CHECKS:
                  print(f"Check took {check_duration:.2f} seconds. No need to sleep.")
 
-    print("\n--- Job finished. Waiting for next scheduled run. ---")
+        # --- Close the browser when all checks are done ---
+        browser.close()
+        print(f"--- Browser closed. ---")
 
 
 if __name__ == "__main__":
