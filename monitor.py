@@ -6,7 +6,7 @@ import os
 import requests 
 from requests_toolbelt import sessions
 
-# --- CONFIGURATION (FINAL VALIDATION TEST) ---
+# --- CONFIGURATION (PRODUCTION MODE) ---
 
 # 1. Email Details (Read securely from GitHub Secrets)
 SMTP_SERVER = "smtp.gmail.com"  
@@ -20,18 +20,17 @@ PROXY_HOST = os.environ.get("PROXY_HOST")
 PROXY_USER = os.environ.get("PROXY_USER")
 PROXY_PASS = os.environ.get("PROXY_PASS")
 
-# 3. Target Details (Modified for Specific Test)
+# 3. Target Details (FINAL PRODUCTION SEARCH TERMS)
 TARGETS = [
     {
-        "url": "https://www.livexscores.com/?p=4&sport=tennis", # In Play page (Skipped in test loop)
-        "terms": ["- ret."], 
+        "url": "https://www.livexscores.com/?p=4&sport=tennis", 
+        "terms": [" - ret."], # PRODUCTION TERM: Searching for space-dash-space-ret
         "type": "Retirement (In Play)"
     },
     {
-        "url": "https://www.livexscores.com/?p=3&sport=tennis", # Finished page
-        # *** FINAL TEST TERM: Searching for the status flag plus the unique bracketed rank ***
-        "terms": ["(GBR) [71] - ret."], 
-        "type": "Definitive Status (Finished FLAG TEST)"
+        "url": "https://www.livexscores.com/?p=3&sport=tennis", 
+        "terms": [" - ret.", " - wo."], # FINAL PRODUCTION TERMS
+        "type": "Definitive Status (Finished)"
     }
 ]
 
@@ -132,7 +131,7 @@ def monitor_page(session, target: dict):
         
         # Check for each target term in the raw text
         for term in target['terms']:
-            # This search must find the raw text substring in the HTML source
+            # The search must find the raw HTML substring
             if term in page_text:
                 
                 context_lines = [line.strip() for line in page_text.split('\n') if term in line]
@@ -180,14 +179,14 @@ def main():
     # Create the proxied session ONCE
     session = create_proxied_session()
     
-    print(f"--- Starting FINAL TEST RUN: {NUM_CHECKS} checks for Retirement Flag ---")
+    print(f"--- Starting PRODUCTION MONITORING RUN: {NUM_CHECKS} checks with a {SLEEP_INTERVAL}-second target interval. ---")
     
     for i in range(1, NUM_CHECKS + 1):
         start_time = time.time()
         print(f"\n--- RUN {i}/{NUM_CHECKS} ---")
         
-        # We only run the Finished Test page check in this mode
-        monitor_page(session, TARGETS[1]) 
+        for target in TARGETS:
+            monitor_page(session, target) # Monitor both targets
 
         end_time = time.time()
         check_duration = end_time - start_time
@@ -200,7 +199,7 @@ def main():
         elif i < NUM_CHECKS:
              print(f"CYCLE INFO: Check took {check_duration:.2f}s. No need to sleep.")
 
-    print(f"--- FINAL TEST RUN COMPLETED. Check log for SMTP success status. ---")
+    print(f"--- PRODUCTION MONITORING RUN COMPLETED. ---")
 
 
 if __name__ == "__main__":
