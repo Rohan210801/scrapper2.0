@@ -8,7 +8,6 @@ from playwright.sync_api import sync_playwright, Playwright, TimeoutError # Impo
 # --- CONFIGURATION ---
 
 # 1. Email Details (Read securely from GitHub Secrets)
-# NOTE: GitHub Actions will inject these values automatically
 SMTP_SERVER = "smtp.gmail.com"  # Change to "smtp-mail.outlook.com" if needed
 SMTP_PORT = 587
 SENDER_EMAIL = os.environ.get("SENDER_EMAIL")
@@ -19,19 +18,20 @@ RECEIVER_EMAIL = os.environ.get("RECEIVER_EMAIL")
 TARGETS = [
     {
         "url": "https://www.livexscores.com/?p=4&sport=tennis", # In Play page
-        "terms": ["- ret."], # Only look for retirement in real-time play
+        "terms": ["- ret."], 
         "type": "Retirement (In Play)"
     },
-{
+    {
         "url": "https://www.livexscores.com/?p=3&sport=tennis", # Finished page
-        "terms": ["Stojanovic Nina"],  # <-- TEMPORARY TEST TERM
+        "terms": ["Stojanovic Nina"], # <--- ***TEMPORARY TEST TERM***
         "type": "Definitive Status (Finished TEST)"
     }
 ]
 
-# --- GLOBAL TIMEOUT CONSTANTS (Increased for stability on GitHub Actions) ---
-BROWSER_LAUNCH_TIMEOUT = 60000  # 60 seconds to launch the browser
-NAVIGATION_TIMEOUT = 60000      # 60 seconds to navigate to a page
+# --- GLOBAL TIMEOUT CONSTANTS ---
+BROWSER_LAUNCH_TIMEOUT = 60000 
+NAVIGATION_TIMEOUT = 60000      
+SCORE_TABLE_SELECTOR = "table[width='100%']" # Element to wait for
 
 
 # --- EMAIL ALERT FUNCTIONS ---
@@ -81,16 +81,16 @@ def send_email_alert(subject, body):
 def monitor_page(browser, target: dict):
     """
     Monitors a single page for a list of specific search terms.
-    Uses an isolated context (no cookies) for reliability.
-    Uses Playwright's optimized locator search.
     """
-    # Create a fresh, isolated session context (like an Incognito tab)
     context = browser.new_context()
     page = context.new_page()
 
     try:
-        # Navigate and wait for the DOM to be built
         page.goto(target['url'], wait_until="domcontentloaded", timeout=NAVIGATION_TIMEOUT)
+        
+        # CRITICAL FIX: Wait for the main scores table to load (ensures fresh data)
+        page.wait_for_selector(SCORE_TABLE_SELECTOR, timeout=15000) 
+        print(f"Loaded and verified content table for {target['type']}.")
         
         found_terms = []
         
@@ -103,7 +103,6 @@ def monitor_page(browser, target: dict):
             if locator.count() > 0:
                 # If found, grab the surrounding text context for the email body
                 
-                # JavaScript to filter and join lines containing the term
                 context_text = page.evaluate(f"""
                     document.body.innerText
                         .split('\\n')
@@ -138,7 +137,7 @@ def monitor_page(browser, target: dict):
             return False
 
     except TimeoutError:
-        print(f"ERROR: Timeout exceeded while loading {target['url']}. (Wait time > {NAVIGATION_TIMEOUT}ms)")
+        print(f"ERROR: Scraper timed out waiting for scores table on {target['url']}.")
         return False
     except Exception as e:
         print(f"ERROR during Playwright scrape of {target['url']}: {e}")
@@ -152,35 +151,33 @@ def main(playwright: Playwright):
     NUM_CHECKS = 30
     SLEEP_INTERVAL = 10 
     
-    # Launch browser ONCE per job (using chromium for reliability)
-    browser = playwright.chromium.launch(timeout=BROWSER_LAUNCH_TIMEOUT)
-    print(f"--- Browser launched once for the job. ---")
-    
-    print(f"--- Starting {NUM_CHECKS} checks with a {SLEEP_INTERVAL}-second target interval. ---")
-    
-    for i in range(1, NUM_CHECKS + 1):
-        start_time = time.time()
-        print(f"\n--- RUN {i}/{NUM_CHECKS} ---")
+    with sync_playwright() as playwright:
         
-        # Run checks on both target pages in this run window
-        for target in TARGETS:
-            monitor_page(browser, target)
+        browser = playwright.chromium.launch(timeout=BROWSER_LAUNCH_TIMEOUT)
+        print(f"--- Browser launched once for the job. ---")
+        
+        print(f"--- Starting {NUM_CHECKS} checks with a {SLEEP_INTERVAL}-second target interval. ---")
+        
+        for i in range(1, NUM_CHECKS + 1):
+            start_time = time.time()
+            print(f"\n--- RUN {i}/{NUM_CHECKS} ---")
+            
+            for target in TARGETS:
+                monitor_page(browser, target)
 
-        end_time = time.time()
-        check_duration = end_time - start_time
-        
-        # Calculate time to sleep to maintain the 10-second target cycle
-        time_to_sleep = SLEEP_INTERVAL - check_duration
-        
-        if time_to_sleep > 0 and i < NUM_CHECKS:
-            print(f"Check took {check_duration:.2f} seconds. Sleeping for {time_to_sleep:.2f} seconds...")
-            time.sleep(time_to_sleep)
-        elif i < NUM_CHECKS:
-             print(f"Check took {check_duration:.2f} seconds. No need to sleep.")
+            end_time = time.time()
+            check_duration = end_time - start_time
+            
+            time_to_sleep = SLEEP_INTERVAL - check_duration
+            
+            if time_to_sleep > 0 and i < NUM_CHECKS:
+                print(f"Check took {check_duration:.2f} seconds. Sleeping for {time_to_sleep:.2f} seconds...")
+                time.sleep(time_to_sleep)
+            elif i < NUM_CHECKS:
+                 print(f"Check took {check_duration:.2f} seconds. No need to sleep.")
 
-    # Close the browser when all checks are done
-    browser.close()
-    print(f"--- Browser closed. All {NUM_CHECKS} runs completed. ---")
+        browser.close()
+        print(f"--- Browser closed. All {NUM_CHECKS} runs completed. ---")
 
 
 if __name__ == "__main__":
