@@ -5,9 +5,9 @@ import time
 import os
 import requests 
 from requests_toolbelt import sessions
-from bs4 import BeautifulSoup # The final tool for structural parsing
+from bs4 import BeautifulSoup 
 
-# --- CONFIGURATION (FINAL VALIDATION TEST) ---
+# --- CONFIGURATION (PRODUCTION DEPLOYMENT) ---
 
 # 1. Email Details (Read securely from GitHub Secrets)
 SMTP_SERVER = "smtp.gmail.com"  
@@ -21,18 +21,17 @@ PROXY_HOST = os.environ.get("PROXY_HOST")
 PROXY_USER = os.environ.get("PROXY_USER")
 PROXY_PASS = os.environ.get("PROXY_PASS")
 
-# 3. Target Details (VALIDATION TERMS)
+# 3. Target Details (FINAL PRODUCTION SEARCH TERMS)
 TARGETS = [
     {
-        "url": "https://www.livexscores.com/?p=4&sport=tennis", 
-        "terms": ["- ret."], # Standard monitoring term (Skipped in this specific test run)
+        "url": "https://www.livexscores.com/paid.php?p=4&sport=tennis-lsh&style=xxeee,x425d3a,x000,xaaa,xc00,x425d3a,xfff,xddd,xc00,verdana,11,xeee,xfff,xeee,NaN,xc00&timezone=+0", 
+        "terms": ["- ret."], 
         "type": "Retirement (In Play)"
     },
     {
-        "url": "https://www.livexscores.com/?p=3&sport=tennis", 
-        # FINAL TEST: Search for a guaranteed country code (GBR)
-        "terms": ["GBR"], 
-        "type": "Definitive Status (Finished GBR TEST)"
+        "url": "https://www.livexscores.com/paid.php?p=3&sport=tennis-lsh&style=xxeee,x425d3a,x000,xaaa,xc00,x425d3a,xfff,xddd,xc00,verdana,11,xeee,xfff,xeee,NaN,xc00&timezone=+0", 
+        "terms": ["- ret.", "- wo."], 
+        "type": "Definitive Status (Finished)"
     }
 ]
 
@@ -50,7 +49,6 @@ def send_email_alert(subject, body):
         msg['To'] = RECEIVER_EMAIL
         msg['Subject'] = subject
         
-        # HTML body for a nice-looking email alert
         html_body = f"""
         <html>
           <body>
@@ -188,14 +186,14 @@ def main():
     # Create the proxied session ONCE
     session = create_proxied_session()
     
-    print(f"--- Starting FINAL VALIDATION TEST: {NUM_CHECKS} checks for '(GBR)' ---")
+    print(f"--- Starting PRODUCTION MONITORING RUN: {NUM_CHECKS} checks with a {SLEEP_INTERVAL}-second target interval. ---")
     
     for i in range(1, NUM_CHECKS + 1):
         start_time = time.time()
         print(f"\n--- RUN {i}/{NUM_CHECKS} ---")
         
-        # We only run the Finished Test page check in this mode
-        monitor_page(session, TARGETS[1]) 
+        for target in TARGETS:
+            monitor_page(session, target) # Monitor both targets
 
         end_time = time.time()
         check_duration = end_time - start_time
@@ -208,7 +206,7 @@ def main():
         elif i < NUM_CHECKS:
              print(f"CYCLE INFO: Check took {check_duration:.2f}s. No need to sleep.")
 
-    print(f"--- FINAL VALIDATION TEST COMPLETED. ---")
+    print(f"--- PRODUCTION MONITORING RUN COMPLETED. ---")
 
 
 if __name__ == "__main__":
