@@ -9,7 +9,6 @@ from playwright.sync_api import sync_playwright, Playwright
 # --- CONFIGURATION ---
 
 # 1. Email Details (Read securely from GitHub Secrets)
-# NOTE: These values are automatically injected by the GitHub Action
 SMTP_SERVER = "smtp.gmail.com"  # Change to "smtp-mail.outlook.com" if needed
 SMTP_PORT = 587
 SENDER_EMAIL = os.environ.get("SENDER_EMAIL")
@@ -19,18 +18,18 @@ RECEIVER_EMAIL = os.environ.get("RECEIVER_EMAIL")
 # 2. Target Details: URL and the specific term to look for on that URL
 TARGETS = [
     {
-        "url": "https://www.livexscores.com/livescore/tennis/inplay",
+        "url": "https://www.livexscores.com/?p=4&sport=tennis", # UPDATED URL: In Play
         "term": "- ret.",
         "type": "Retirement (In Play)"
     },
     {
-        "url": "https://www.livexscores.com/livescore/tennis/notstarted",
+        "url": "https://www.livexscores.com/?p=2&sport=tennis", # UPDATED URL: Not Started
         "term": "- wo.",
         "type": "Walkover (Not Started)"
     }
 ]
 
-# --- EMAIL ALERT FUNCTION ---
+# --- EMAIL ALERT FUNCTION (Unchanged) ---
 
 def send_email_alert(subject, body):
     if not all([SENDER_EMAIL, SENDER_PASSWORD, RECEIVER_EMAIL]):
@@ -70,11 +69,13 @@ def send_email_alert(subject, body):
     except Exception as e:
         print(f"An error occurred during email sending: {e}")
 
-# --- CORE MONITORING LOGIC (using Playwright) ---
+# --- CORE MONITORING LOGIC ---
 
 def monitor_page(playwright: Playwright, target: dict):
     # Use Chromium for the headless browser
-    browser = playwright.chromium.launch()
+    # NOTE on Cookies: Creating a new browser and context for every check 
+    # ensures a fresh session with no accumulated cookies, preventing site crashes.
+    browser = playwright.chromium.launch() 
     context = browser.new_context()
     page = context.new_page()
 
@@ -83,6 +84,7 @@ def monitor_page(playwright: Playwright, target: dict):
         page.goto(target['url'], wait_until="networkidle")
         
         # Wait a few extra seconds for dynamic JavaScript content to load
+        # This 3-second delay is crucial for the content to appear
         page.wait_for_timeout(3000) 
         
         # Get the full text content of the page body
@@ -92,7 +94,7 @@ def monitor_page(playwright: Playwright, target: dict):
         
         if search_term in page_text:
             
-            # Extract the surrounding lines for context (optional, but helpful)
+            # Extract the surrounding lines for context
             context_lines = [line.strip() for line in page_text.split('\n') if search_term in line]
             
             # Prepare the alert message
@@ -105,37 +107,49 @@ def monitor_page(playwright: Playwright, target: dict):
                 f"{' | '.join(context_lines) if context_lines else 'Could not retrieve line context.'}"
             )
 
-            # Send the email alert
             send_email_alert(subject, body_content)
             return True
         else:
-            print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] No match found for {target['type']} at {target['url']}")
             return False
 
     except Exception as e:
         print(f"ERROR during Playwright scrape of {target['url']}: {e}")
         return False
     finally:
+        # Ensure the browser is closed to free up resources
         browser.close()
 
 
 def main():
+    # Number of checks to run within the 60-second window
+    NUM_CHECKS = 6
+    SLEEP_INTERVAL = 10 
+    
     with sync_playwright() as playwright:
         
-        # 1. Run checks on both pages immediately (Start of minute)
-        print("\n--- RUN 1: Immediate Check ---")
-        for target in TARGETS:
-            monitor_page(playwright, target)
+        print(f"--- Starting {NUM_CHECKS} checks with a {SLEEP_INTERVAL}-second interval. ---")
+        
+        for i in range(1, NUM_CHECKS + 1):
+            start_time = time.time()
+            print(f"\n--- RUN {i}/{NUM_CHECKS} ---")
+            
+            # Run checks on both pages
+            for target in TARGETS:
+                monitor_page(playwright, target)
 
-        # 2. DELAY: Wait 30 seconds to hit the target interval
-        time.sleep(30)
-        
-        # 3. Run checks on both pages 30 seconds later (Middle of minute)
-        print("\n--- RUN 2: 30 Second Delay Check ---")
-        for target in TARGETS:
-            monitor_page(playwright, target)
-        
-    print("\n--- Job finished. Waiting for next schedule. ---")
+            end_time = time.time()
+            check_duration = end_time - start_time
+            
+            # Calculate the remaining time to sleep to hit the exact 10-second mark
+            time_to_sleep = SLEEP_INTERVAL - check_duration
+            
+            if time_to_sleep > 0 and i < NUM_CHECKS:
+                print(f"Check took {check_duration:.2f} seconds. Sleeping for {time_to_sleep:.2f} seconds...")
+                time.sleep(time_to_sleep)
+            elif i < NUM_CHECKS:
+                 print(f"Check took {check_duration:.2f} seconds. No need to sleep.")
+
+    print("\n--- Job finished. Waiting for next scheduled run. ---")
 
 
 if __name__ == "__main__":
