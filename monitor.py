@@ -29,8 +29,8 @@ TARGETS = [
 ]
 
 # --- GLOBAL TIMEOUT CONSTANTS ---
-BROWSER_LAUNCH_TIMEOUT = 60000 
-NAVIGATION_TIMEOUT = 60000      
+BROWSER_LAUNCH_TIMEOUT = 60000  # 60 seconds to launch the browser
+NAVIGATION_TIMEOUT = 60000      # 60 seconds to navigate to a page
 SCORE_TABLE_SELECTOR = "table[width='100%']" # Element to wait for
 
 
@@ -151,37 +151,37 @@ def main(playwright: Playwright):
     NUM_CHECKS = 30
     SLEEP_INTERVAL = 10 
     
-    with sync_playwright() as playwright:
+    
+    browser = playwright.chromium.launch(timeout=BROWSER_LAUNCH_TIMEOUT)
+    print(f"--- Browser launched once for the job. ---")
+    
+    print(f"--- Starting {NUM_CHECKS} checks with a {SLEEP_INTERVAL}-second target interval. ---")
+    
+    for i in range(1, NUM_CHECKS + 1):
+        start_time = time.time()
+        print(f"\n--- RUN {i}/{NUM_CHECKS} ---")
         
-        browser = playwright.chromium.launch(timeout=BROWSER_LAUNCH_TIMEOUT)
-        print(f"--- Browser launched once for the job. ---")
-        
-        print(f"--- Starting {NUM_CHECKS} checks with a {SLEEP_INTERVAL}-second target interval. ---")
-        
-        for i in range(1, NUM_CHECKS + 1):
-            start_time = time.time()
-            print(f"\n--- RUN {i}/{NUM_CHECKS} ---")
-            
-            for target in TARGETS:
-                monitor_page(browser, target)
+        for target in TARGETS:
+            monitor_page(browser, target)
 
-            end_time = time.time()
-            check_duration = end_time - start_time
-            
-            time_to_sleep = SLEEP_INTERVAL - check_duration
-            
-            if time_to_sleep > 0 and i < NUM_CHECKS:
-                print(f"Check took {check_duration:.2f} seconds. Sleeping for {time_to_sleep:.2f} seconds...")
-                time.sleep(time_to_sleep)
-            elif i < NUM_CHECKS:
-                 print(f"Check took {check_duration:.2f} seconds. No need to sleep.")
+        end_time = time.time()
+        check_duration = end_time - start_time
+        
+        time_to_sleep = SLEEP_INTERVAL - check_duration
+        
+        if time_to_sleep > 0 and i < NUM_CHECKS:
+            print(f"Check took {check_duration:.2f} seconds. Sleeping for {time_to_sleep:.2f} seconds...")
+            time.sleep(time_to_sleep)
+        elif i < NUM_CHECKS:
+             print(f"Check took {check_duration:.2f} seconds. No need to sleep.")
 
-        browser.close()
-        print(f"--- Browser closed. All {NUM_CHECKS} runs completed. ---")
+    browser.close()
+    print(f"--- Browser closed. All {NUM_CHECKS} runs completed. ---")
 
 
 if __name__ == "__main__":
-    # Ensure Playwright browser binaries are installed
+    
+    # --- FIX: Run installation outside the Playwright context to prevent Asyncio loop error ---
     os.system("playwright install chromium")
     
     # Run the main monitoring job
@@ -189,4 +189,4 @@ if __name__ == "__main__":
         with sync_playwright() as playwright:
             main(playwright)
     except Exception as e:
-        print(f"FATAL SCRIPT ERROR: {e}")
+        print(f"FATAL S
