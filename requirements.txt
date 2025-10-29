@@ -1,2 +1,3 @@
 requests
-playwright
+requests-toolbelt
+beautifulsoup4
