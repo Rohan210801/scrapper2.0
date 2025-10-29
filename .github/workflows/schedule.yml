@@ -1,10 +1,9 @@
 name: Live Score Monitor
 
 on:
-  # Cron expression: Runs every minute (shortest interval supported by GitHub)
   schedule:
+    # Set to 1-minute cron for the fastest, most stable interval on the lightweight job
     - cron: '*/1 * * * *' 
-  # Allows manual triggering from the GitHub Actions tab for easy testing
   workflow_dispatch:
 
 jobs:
@@ -13,24 +12,26 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+      
+      # --- CRITICAL CLEANUP: Removes Playwright files to stop the old error ---
+      - name: Clean up old Playwright
+        run: |
+          pip uninstall playwright -y || true
+          rm -rf ~/.local/share/pyppeteer || true
+          rm -rf ~/.cache/ms-playwright || true
+        shell: bash
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.x'
 
-      - name: Install dependencies and browser binaries
+      - name: Install dependencies
         run: |
-          # 1. Install Python packages from requirements.txt
-          pip install -r requirements.txt
-          
-          # 2. Install Playwright browser binaries (Chromium)
-          # This command is the most reliable way to set up the headless browser
-          # in the GitHub Actions environment.
-          playwright install chromium
+          # Only installing 'requests' now
+          pip install -r requirements.txt 
 
-      - name: Run Scraper (30-second check loop)
-        # Passes the secrets securely as environment variables to the Python script
+      - name: Run Scraper
         env:
           SENDER_EMAIL: ${{ secrets.SENDER_EMAIL }}
           SENDER_PASSWORD: ${{ secrets.SENDER_PASSWORD }}
