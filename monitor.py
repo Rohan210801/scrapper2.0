@@ -6,7 +6,7 @@ import os
 import requests 
 from requests_toolbelt import sessions
 
-# --- CONFIGURATION (FINAL TEST MODE) ---
+# --- CONFIGURATION (TEST MODE) ---
 
 # 1. Email Details (Read securely from GitHub Secrets)
 SMTP_SERVER = "smtp.gmail.com"  
@@ -20,17 +20,18 @@ PROXY_HOST = os.environ.get("PROXY_HOST")
 PROXY_USER = os.environ.get("PROXY_USER")
 PROXY_PASS = os.environ.get("PROXY_PASS")
 
-# 3. Target Details (Modified for FINAL Test)
+# 3. Target Details (Modified for Specific Test)
 TARGETS = [
     {
-        "url": "https://www.livexscores.com/?p=4&sport=tennis", 
+        "url": "https://www.livexscores.com/?p=4&sport=tennis", # In Play page
         "terms": ["- ret."], 
         "type": "Retirement (In Play)"
     },
     {
         "url": "https://www.livexscores.com/?p=3&sport=tennis", # Finished page
-        "terms": ["Finished"], # <--- FINAL TEST TERM (Must be on page)
-        "type": "Definitive Status (Finished EMAIL TEST)"
+        # *** LIVE TEST TERM: Searching for the exact RAW HTML substring ***
+        "terms": ["Jones Francesca (GBR) [71] - ret."], 
+        "type": "Definitive Status (Finished LIVE TEST)"
     }
 ]
 
@@ -123,7 +124,7 @@ def monitor_page(session, target: dict):
         print(f"NETWORK: Fetching {target['type']} data from {clean_url}...")
         
         # Use the passed session object for the request
-        response = session.get(clean_url, headers=headers, timeout=15)
+        response = session.get(clean_url, headers=headers, timeout=15) 
         response.raise_for_status() 
         
         page_text = response.text
@@ -178,31 +179,13 @@ def main():
     # Create the proxied session ONCE
     session = create_proxied_session()
     
-    print(f"--- Starting FINAL EMAIL TEST: {NUM_CHECKS} checks for 'Finished' keyword ---")
+    print(f"--- Starting LIVE TEST RUN: {NUM_CHECKS} checks for current retirement ---")
     
     for i in range(1, NUM_CHECKS + 1):
         start_time = time.time()
         print(f"\n--- RUN {i}/{NUM_CHECKS} ---")
         
-        # We only run the Finished Test page check in this mode
+        # We run the Finished Test page check in this mode
         monitor_page(session, TARGETS[1]) 
 
         end_time = time.time()
-        check_duration = end_time - start_time
-        
-        time_to_sleep = SLEEP_INTERVAL - check_duration
-        
-        if time_to_sleep > 0 and i < NUM_CHECKS:
-            print(f"CYCLE INFO: Sleeping for {time_to_sleep:.2f} seconds...")
-            time.sleep(time_to_sleep)
-        elif i < NUM_CHECKS:
-             print(f"CYCLE INFO: Check took {check_duration:.2f}s. No need to sleep.")
-
-    print(f"--- FINAL TEST RUN COMPLETED. Check inbox for email with 'Finished EMAIL TEST' subject. ---")
-
-
-if __name__ == "__main__":
-    try:
-        main()
-    except Exception as e:
-        print(f"FATAL SCRIPT ERROR: {e}")
