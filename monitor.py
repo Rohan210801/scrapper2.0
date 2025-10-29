@@ -5,8 +5,9 @@ import time
 import os
 import requests 
 from requests_toolbelt import sessions
+from bs4 import BeautifulSoup # Used for robust HTML parsing
 
-# --- CONFIGURATION (PURE RAW SEARCH TEST) ---
+# --- CONFIGURATION (FINAL VALIDATION TEST) ---
 
 # 1. Email Details (Read securely from GitHub Secrets)
 SMTP_SERVER = "smtp.gmail.com"  
@@ -20,7 +21,7 @@ PROXY_HOST = os.environ.get("PROXY_HOST")
 PROXY_USER = os.environ.get("PROXY_USER")
 PROXY_PASS = os.environ.get("PROXY_PASS")
 
-# 3. Target Details (TESTING MINIMAL PRODUCTION TERM)
+# 3. Target Details (FINAL VALIDATION TERMS)
 TARGETS = [
     {
         "url": "https://www.livexscores.com/?p=4&sport=tennis", 
@@ -28,9 +29,10 @@ TARGETS = [
         "type": "Retirement (In Play)"
     },
     {
-        "url": "https://www.livexscores.com/?p=3&sport=tennis", 
-        "terms": ["GBR"], # <--- FINAL TEST: Searching for bare minimum retirement flag
-        "type": "Definitive Status (Finished - RET Test)"
+        "url": "https://www.livexscores.com/?p=3&sport=tennis", # Finished page
+        # FINAL TEST: Search for a guaranteed country code (GBR)
+        "terms": ["GBR"], 
+        "type": "Definitive Status (Finished GBR TEST)"
     }
 ]
 
@@ -80,7 +82,7 @@ def send_email_alert(subject, body):
         return False
 
 
-# --- CORE MONITORING LOGIC (Using Proxy) ---
+# --- CORE MONITORING LOGIC (Using Proxy + BeautifulSoup) ---
 
 def create_proxied_session():
     """Creates a requests session configured with the proxy credentials."""
@@ -107,7 +109,7 @@ def create_proxied_session():
 
 def monitor_page(session, target: dict):
     """
-    Monitors a single page by fetching the raw HTML and searching the text.
+    Monitors a single page by fetching the raw HTML and searching using BeautifulSoup.
     """
     clean_url = target['url'].strip()
     
@@ -122,23 +124,34 @@ def monitor_page(session, target: dict):
     try:
         print(f"NETWORK: Fetching {target['type']} data from {clean_url}...")
         
-        # Use the passed session object for the request
+        # 1. Fetch raw content
         response = session.get(clean_url, headers=headers, timeout=15)
         response.raise_for_status() 
         
-        page_text = response.text
+        # 2. Parse the content with BeautifulSoup
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
         found_terms = []
         
-        # Check for each target term in the raw text
+        # 3. Search for each term using the precise BeautifulSoup structure
         for term in target['terms']:
-            # This search must find the raw HTML substring
-            if term in page_text:
-                
-                context_lines = [line.strip() for line in page_text.split('\n') if term in line]
+            
+            # Use find_all(string=True) to grab all text nodes in the document
+            # This is the "human-like" search that ignores the <a> tag separating the text
+            all_text_nodes = soup.find_all(string=True)
+            
+            # Filter the text nodes to find lines that contain the target term
+            matching_lines = [
+                node.strip() for node in all_text_nodes 
+                if term in node 
+                and len(node.strip()) > 5 # Ignore small, junk matches
+            ]
 
+            if matching_lines:
                 found_terms.append({
                     "term": term,
-                    "context": "\n".join(context_lines)
+                    # Join the unique matching lines found by BS4
+                    "context": "\n".join(matching_lines) 
                 })
         
         if found_terms:
@@ -179,7 +192,7 @@ def main():
     # Create the proxied session ONCE
     session = create_proxied_session()
     
-    print(f"--- Starting PRODUCTION TERM TEST: {NUM_CHECKS} checks for '- ret.' ---")
+    print(f"--- Starting FINAL VALIDATION TEST: {NUM_CHECKS} checks for '(GBR)' ---")
     
     for i in range(1, NUM_CHECKS + 1):
         start_time = time.time()
@@ -199,7 +212,7 @@ def main():
         elif i < NUM_CHECKS:
              print(f"CYCLE INFO: Check took {check_duration:.2f}s. No need to sleep.")
 
-    print(f"--- PRODUCTION TERM TEST COMPLETED. ---")
+    print(f"--- FINAL VALIDATION TEST COMPLETED. ---")
 
 
 if __name__ == "__main__":
