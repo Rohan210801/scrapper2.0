@@ -24,12 +24,12 @@ PROXY_PASS = os.environ.get("PROXY_PASS")
 # 3. Target Details (VALIDATION TERMS)
 TARGETS = [
     {
-        "url": "https://www.livexscores.com/paid.php?p=4&sport=tennis-lsh&style=xxeee,x425d3a,x000,xaaa,xc00,x425d3a,xfff,xddd,xc00,verdana,11,xeee,xfff,xeee,NaN,xc00&timezone=+0", 
+        "url": "https://www.livexscores.com/?p=4&sport=tennis", 
         "terms": ["- ret."], # Standard monitoring term (Skipped in this specific test run)
         "type": "Retirement (In Play)"
     },
     {
-        "url": "https://www.livexscores.com/paid.php?p=3&sport=tennis-lsh&style=xxeee,x425d3a,x000,xaaa,xc00,x425d3a,xfff,xddd,xc00,verdana,11,xeee,xfff,xeee,NaN,xc00&timezone=+0", 
+        "url": "https://www.livexscores.com/?p=3&sport=tennis", 
         # FINAL TEST: Search for a guaranteed country code (GBR)
         "terms": ["GBR"], 
         "type": "Definitive Status (Finished GBR TEST)"
