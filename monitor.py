@@ -6,7 +6,7 @@ import os
 import requests 
 from requests_toolbelt import sessions
 
-# --- CONFIGURATION (TEST MODE) ---
+# --- CONFIGURATION (FINAL TEST MODE) ---
 
 # 1. Email Details (Read securely from GitHub Secrets)
 SMTP_SERVER = "smtp.gmail.com"  
@@ -20,17 +20,17 @@ PROXY_HOST = os.environ.get("PROXY_HOST")
 PROXY_USER = os.environ.get("PROXY_USER")
 PROXY_PASS = os.environ.get("PROXY_PASS")
 
-# 3. Target Details (Modified for Test)
+# 3. Target Details (Modified for FINAL Test)
 TARGETS = [
     {
-        "url": "https://www.livexscores.com/?p=4&sport=tennis", # In Play page
+        "url": "https://www.livexscores.com/?p=4&sport=tennis", 
         "terms": ["- ret."], 
         "type": "Retirement (In Play)"
     },
     {
         "url": "https://www.livexscores.com/?p=3&sport=tennis", # Finished page
-        "terms": ["Stojanovic Nina"], # <--- ***TEMPORARY TEST TERM***
-        "type": "Definitive Status (Finished TEST)"
+        "terms": ["Finished"], # <--- FINAL TEST TERM (Must be on page)
+        "type": "Definitive Status (Finished EMAIL TEST)"
     }
 ]
 
@@ -65,7 +65,6 @@ def send_email_alert(subject, body):
         msg.attach(MIMEText(html_body, 'html'))
         
         print(f"SMTP: Attempting connection to send email...")
-        # Connect to the SMTP server and send
         with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
             server.starttls()
             server.login(SENDER_EMAIL, SENDER_PASSWORD)
@@ -124,7 +123,7 @@ def monitor_page(session, target: dict):
         print(f"NETWORK: Fetching {target['type']} data from {clean_url}...")
         
         # Use the passed session object for the request
-        response = session.get(clean_url, headers=headers, timeout=15) # Increased timeout to 15s for proxy overhead
+        response = session.get(clean_url, headers=headers, timeout=15)
         response.raise_for_status() 
         
         page_text = response.text
@@ -179,7 +178,7 @@ def main():
     # Create the proxied session ONCE
     session = create_proxied_session()
     
-    print(f"--- Starting TEST PROXY RUN: {NUM_CHECKS} checks for Stojanovic Nina ---")
+    print(f"--- Starting FINAL EMAIL TEST: {NUM_CHECKS} checks for 'Finished' keyword ---")
     
     for i in range(1, NUM_CHECKS + 1):
         start_time = time.time()
@@ -199,7 +198,7 @@ def main():
         elif i < NUM_CHECKS:
              print(f"CYCLE INFO: Check took {check_duration:.2f}s. No need to sleep.")
 
-    print(f"--- TEST PROXY RUN COMPLETED. Check log for SMTP success. ---")
+    print(f"--- FINAL TEST RUN COMPLETED. Check inbox for email with 'Finished EMAIL TEST' subject. ---")
 
 
 if __name__ == "__main__":
