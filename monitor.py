@@ -3,7 +3,7 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import time
 import os
-from playwright.sync_api import sync_playwright, Playwright, TimeoutError # Import TimeoutError
+from playwright.sync_api import sync_playwright, Playwright, TimeoutError 
 
 # --- CONFIGURATION ---
 
@@ -33,7 +33,7 @@ BROWSER_LAUNCH_TIMEOUT = 60000  # 60 seconds to launch the browser
 NAVIGATION_TIMEOUT = 60000      # 60 seconds to navigate to a page
 
 
-# --- EMAIL ALERT FUNCTIONS ---
+# --- EMAIL ALERT FUNCTION ---
 
 def send_email_alert(subject, body):
     if not all([SENDER_EMAIL, SENDER_PASSWORD, RECEIVER_EMAIL]):
@@ -75,18 +75,6 @@ def send_email_alert(subject, body):
         print(f"An error occurred during email sending: {e}")
 
 
-def send_test_email():
-    """Forces a test email to be sent using the configured SMTP details."""
-    test_subject = "SUCCESS: Monitoring Email Test"
-    test_body = (
-        f"This is a test run to confirm your email configuration (App Password, SMTP) is working.\n"
-        f"URL 1 (In Play): {TARGETS[0]['url']} is being checked for '{TARGETS[0]['term']}'\n"
-        f"URL 2 (Not Started): {TARGETS[1]['url']} is being checked for '{TARGETS[1]['term']}'\n"
-        f"\nIf you received this, your email setup is correct. DELETE the call to this function immediately after verifying!"
-    )
-    send_email_alert(test_subject, test_body)
-
-
 # --- CORE MONITORING LOGIC ---
 
 def monitor_page(browser, target: dict):
@@ -102,12 +90,13 @@ def monitor_page(browser, target: dict):
         
         search_term = target['term']
         
-        # Optimized search: Looks for any element containing the text
+        # Optimized search: Looks for any element containing the text (fastest way to "CTRL+F" in Playwright)
         locator = page.locator(f"//*[contains(text(), '{search_term}')]")
 
         if locator.count() > 0:
             
             # Extract surrounding text to give context in the email
+            # This is done *only* after a match is found, saving processing time
             context_text = page.evaluate(f"document.body.innerText.split('\\n').filter(line => line.includes('{search_term}')).join('\\n')")
             
             subject = f"ALERT: {target['type']} Detected!"
@@ -138,11 +127,12 @@ def main():
     NUM_CHECKS = 6
     SLEEP_INTERVAL = 10 
     
+    # Ensure Chromium browser dependencies are installed on the runner
     os.system("playwright install chromium")
     
     with sync_playwright() as playwright:
         
-        # Launch browser ONCE per job
+        # Launch browser ONCE per job to reduce overhead
         browser = playwright.chromium.launch(timeout=BROWSER_LAUNCH_TIMEOUT)
         print(f"--- Browser launched once for the job. ---")
         
@@ -159,6 +149,7 @@ def main():
             end_time = time.time()
             check_duration = end_time - start_time
             
+            # Calculate dynamic sleep time to hit the 10-second target
             time_to_sleep = SLEEP_INTERVAL - check_duration
             
             if time_to_sleep > 0 and i < NUM_CHECKS:
@@ -173,12 +164,7 @@ def main():
 
 
 if __name__ == "__main__":
-    
-    # TEMPORARY TEST: Run this function to verify email sending. 
-    # REMOVE this line after testing is successful.
-    send_test_email() 
-    
-    # Run the main monitoring job
+    # Run the main monitoring job (REVERT MODE - NO TEST EMAIL)
     try:
         main()
     except Exception as e:
