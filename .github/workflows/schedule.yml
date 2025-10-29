@@ -2,7 +2,7 @@ name: Live Score Monitor
 
 on:
   schedule:
-    # Set to 1-minute cron for the fastest, most stable interval on the lightweight job
+    # Runs every 1 minute
     - cron: '*/1 * * * *' 
   workflow_dispatch:
 
@@ -13,8 +13,8 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
       
-      # --- CRITICAL CLEANUP: Removes Playwright files to stop the old error ---
-      - name: Clean up old Playwright
+      # --- CRITICAL CLEANUP: Ensures no conflicts from previous failed setups ---
+      - name: Clean up old binaries
         run: |
           pip uninstall playwright -y || true
           rm -rf ~/.local/share/pyppeteer || true
@@ -26,14 +26,17 @@ jobs:
         with:
           python-version: '3.x'
 
-      - name: Install dependencies
+      - name: Install dependencies (including requests-toolbelt)
         run: |
-          # Only installing 'requests' now
           pip install -r requirements.txt 
 
-      - name: Run Scraper
+      - name: Run Scraper (via Proxy)
+        # Pass all necessary credentials as environment variables (Secrets must be set in GitHub)
         env:
           SENDER_EMAIL: ${{ secrets.SENDER_EMAIL }}
           SENDER_PASSWORD: ${{ secrets.SENDER_PASSWORD }}
           RECEIVER_EMAIL: ${{ secrets.RECEIVER_EMAIL }}
+          PROXY_HOST: ${{ secrets.PROXY_HOST }}
+          PROXY_USER: ${{ secrets.PROXY_USER }}
+          PROXY_PASS: ${{ secrets.PROXY_PASS }}
         run: python monitor.py
