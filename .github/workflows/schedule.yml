@@ -3,7 +3,7 @@ name: Live Score Monitor
 on:
   # Cron expression: Runs every minute (shortest interval supported by GitHub)
   schedule:
-    - cron: '*/2 * * * *' 
+    - cron: '*/1 * * * *' 
   # Allows manual triggering from the GitHub Actions tab for easy testing
   workflow_dispatch:
 
