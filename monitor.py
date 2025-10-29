@@ -3,28 +3,29 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import time
 import os
-from playwright.sync_api import sync_playwright, Playwright, TimeoutError 
+from playwright.sync_api import sync_playwright, Playwright, TimeoutError # Import Playwright utilities
 
 # --- CONFIGURATION ---
 
 # 1. Email Details (Read securely from GitHub Secrets)
+# NOTE: GitHub Actions will inject these values automatically
 SMTP_SERVER = "smtp.gmail.com"  # Change to "smtp-mail.outlook.com" if needed
 SMTP_PORT = 587
 SENDER_EMAIL = os.environ.get("SENDER_EMAIL")
 SENDER_PASSWORD = os.environ.get("SENDER_PASSWORD")
 RECEIVER_EMAIL = os.environ.get("RECEIVER_EMAIL") 
 
-# 2. Target Details: URL and the specific term to look for on that URL
+# 2. Target Details: URL and the specific term(s) to look for on that URL
 TARGETS = [
     {
         "url": "https://www.livexscores.com/?p=4&sport=tennis", # In Play page
-        "term": "- ret.",
+        "terms": ["- ret."], # Only look for retirement in real-time play
         "type": "Retirement (In Play)"
     },
     {
-        "url": "https://www.livexscores.com/?p=2&sport=tennis", # Not Started page
-        "term": "- wo.",
-        "type": "Walkover (Not Started)"
+        "url": "https://www.livexscores.com/?p=3&sport=tennis", # Finished page
+        "terms": ["- ret.", "- wo."], # Look for both on the definitive score page
+        "type": "Definitive Status (Finished)"
     }
 ]
 
@@ -33,7 +34,7 @@ BROWSER_LAUNCH_TIMEOUT = 60000  # 60 seconds to launch the browser
 NAVIGATION_TIMEOUT = 60000      # 60 seconds to navigate to a page
 
 
-# --- EMAIL ALERT FUNCTION ---
+# --- EMAIL ALERT FUNCTIONS ---
 
 def send_email_alert(subject, body):
     if not all([SENDER_EMAIL, SENDER_PASSWORD, RECEIVER_EMAIL]):
@@ -79,36 +80,59 @@ def send_email_alert(subject, body):
 
 def monitor_page(browser, target: dict):
     """
-    Monitors a single page for a specific search term.
+    Monitors a single page for a list of specific search terms.
     Uses an isolated context (no cookies) for reliability.
+    Uses Playwright's optimized locator search.
     """
+    # Create a fresh, isolated session context (like an Incognito tab)
     context = browser.new_context()
     page = context.new_page()
 
     try:
-        # Navigate to the URL, waiting for the DOM to load
+        # Navigate and wait for the DOM to be built
         page.goto(target['url'], wait_until="domcontentloaded", timeout=NAVIGATION_TIMEOUT)
         
-        search_term = target['term']
+        found_terms = []
         
-        # Optimized search: Looks for any element containing the text (fastest way to "CTRL+F" in Playwright)
-        locator = page.locator(f"//*[contains(text(), '{search_term}')]")
-
-        if locator.count() > 0:
+        # Check for each target term using optimized XPath search
+        for term in target['terms']:
             
-            # Extract surrounding text to give context in the email
-            context_text = page.evaluate(f"document.body.innerText.split('\\n').filter(line => line.includes('{search_term}')).join('\\n')")
-            
-            subject = f"ALERT: {target['type']} Detected!"
-            body_content = (
-                f"Event Type: {target['type']}\n"
-                f"URL: {target['url']}\n"
-                f"Term Found: '{search_term}'\n"
-                f"--- Contextual Line(s) ---\n"
-                f"{context_text.strip()}"
-            )
+            # XPath locator finds any visible element containing the search text
+            locator = page.locator(f"//*[contains(text(), '{term}')]")
 
-            send_email_alert(subject, body_content)
+            if locator.count() > 0:
+                # If found, grab the surrounding text context for the email body
+                
+                # JavaScript to filter and join lines containing the term
+                context_text = page.evaluate(f"""
+                    document.body.innerText
+                        .split('\\n')
+                        .filter(line => line.includes('{term}'))
+                        .join('\\n')
+                """)
+                
+                found_terms.append({
+                    "term": term,
+                    "context": context_text.strip()
+                })
+        
+        if found_terms:
+            # Consolidate all found terms into a single email
+            
+            email_body = ""
+            subject_terms = []
+            
+            for item in found_terms:
+                subject_terms.append(item['term'])
+                email_body += (
+                    f"--- Status Found: {item['term']} ---\n"
+                    f"Contextual Line(s) from Page:\n"
+                    f"{item['context']}\n\n"
+                )
+
+            subject = f"ALERT: {target['type']} - Status Detected: {', '.join(subject_terms)}"
+            
+            send_email_alert(subject, email_body)
             return True
         else:
             return False
@@ -123,50 +147,49 @@ def monitor_page(browser, target: dict):
         context.close()
 
 
-def main():
-    # Runs 30 times within the 5-minute GitHub Action window (30 * 10 seconds = 300 seconds)
-    NUM_CHECKS = 30 
+def main(playwright: Playwright):
+    
+    NUM_CHECKS = 30
     SLEEP_INTERVAL = 10 
     
-    # Ensure Chromium browser dependencies are installed on the runner
-    os.system("playwright install chromium")
+    # Launch browser ONCE per job (using chromium for reliability)
+    browser = playwright.chromium.launch(timeout=BROWSER_LAUNCH_TIMEOUT)
+    print(f"--- Browser launched once for the job. ---")
     
-    with sync_playwright() as playwright:
+    print(f"--- Starting {NUM_CHECKS} checks with a {SLEEP_INTERVAL}-second target interval. ---")
+    
+    for i in range(1, NUM_CHECKS + 1):
+        start_time = time.time()
+        print(f"\n--- RUN {i}/{NUM_CHECKS} ---")
         
-        # Launch browser ONCE per job to reduce overhead
-        browser = playwright.chromium.launch(timeout=BROWSER_LAUNCH_TIMEOUT)
-        print(f"--- Browser launched once for the job. ---")
-        
-        print(f"--- Starting {NUM_CHECKS} checks with a {SLEEP_INTERVAL}-second interval. ---")
-        
-        for i in range(1, NUM_CHECKS + 1):
-            start_time = time.time()
-            print(f"\n--- RUN {i}/{NUM_CHECKS} ---")
-            
-            # Run checks on both target pages in this run window
-            for target in TARGETS:
-                monitor_page(browser, target)
+        # Run checks on both target pages in this run window
+        for target in TARGETS:
+            monitor_page(browser, target)
 
-            end_time = time.time()
-            check_duration = end_time - start_time
-            
-            # Calculate dynamic sleep time to hit the 10-second target
-            time_to_sleep = SLEEP_INTERVAL - check_duration
-            
-            if time_to_sleep > 0 and i < NUM_CHECKS:
-                print(f"Check took {check_duration:.2f} seconds. Sleeping for {time_to_sleep:.2f} seconds...")
-                time.sleep(time_to_sleep)
-            elif i < NUM_CHECKS:
-                 print(f"Check took {check_duration:.2f} seconds. No need to sleep.")
+        end_time = time.time()
+        check_duration = end_time - start_time
+        
+        # Calculate time to sleep to maintain the 10-second target cycle
+        time_to_sleep = SLEEP_INTERVAL - check_duration
+        
+        if time_to_sleep > 0 and i < NUM_CHECKS:
+            print(f"Check took {check_duration:.2f} seconds. Sleeping for {time_to_sleep:.2f} seconds...")
+            time.sleep(time_to_sleep)
+        elif i < NUM_CHECKS:
+             print(f"Check took {check_duration:.2f} seconds. No need to sleep.")
 
-        # Close the browser when all checks are done
-        browser.close()
-        print(f"--- Browser closed. All {NUM_CHECKS} runs completed. ---")
+    # Close the browser when all checks are done
+    browser.close()
+    print(f"--- Browser closed. All {NUM_CHECKS} runs completed. ---")
 
 
 if __name__ == "__main__":
-    # Run the main monitoring job (REVERT MODE - NO TEST EMAIL)
+    # Ensure Playwright browser binaries are installed
+    os.system("playwright install chromium")
+    
+    # Run the main monitoring job
     try:
-        main()
+        with sync_playwright() as playwright:
+            main(playwright)
     except Exception as e:
         print(f"FATAL SCRIPT ERROR: {e}")
