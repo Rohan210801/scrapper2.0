@@ -5,7 +5,7 @@ import time
 import os
 import requests # Lightweight library replaces Playwright
 
-# --- CONFIGURATION (Production Mode) ---
+# --- CONFIGURATION (TEST MODE) ---
 
 # 1. Email Details (Read securely from GitHub Secrets)
 SMTP_SERVER = "smtp.gmail.com"  
@@ -14,24 +14,24 @@ SENDER_EMAIL = os.environ.get("SENDER_EMAIL")
 SENDER_PASSWORD = os.environ.get("SENDER_PASSWORD")
 RECEIVER_EMAIL = os.environ.get("RECEIVER_EMAIL") 
 
-# 2. Target Details: Use the simplest possible URLs for raw fetching
+# 2. Target Details: URL and the specific term(s) to look for on that URL
 TARGETS = [
     {
-        # In Play page (Simplified URL)
+        # In Play page (Still searches for general retirements, but won't likely trigger)
         "url": "https://www.livexscores.com/?p=4&sport=tennis", 
         "terms": ["- ret."], 
         "type": "Retirement (In Play)"
     },
     {
-        # Finished page (Simplified URL)
+        # Finished page (FORCED TEST)
         "url": "https://www.livexscores.com/?p=3&sport=tennis", 
-        "terms": ["- ret.", "- wo."], 
-        "type": "Definitive Status (Finished)"
+        "terms": ["Stojanovic Nina"], # <--- ***TEMPORARY TEST TERM***
+        "type": "Definitive Status (Finished TEST)"
     }
 ]
 
 
-# --- EMAIL ALERT FUNCTIONS (Unchanged) ---
+# --- EMAIL ALERT FUNCTIONS ---
 
 def send_email_alert(subject, body):
     if not all([SENDER_EMAIL, SENDER_PASSWORD, RECEIVER_EMAIL]):
@@ -78,7 +78,6 @@ def send_email_alert(subject, body):
 def monitor_page(target: dict):
     """
     Monitors a single page by fetching the raw HTML and searching the text.
-    No headless browser needed, eliminating timeouts.
     """
     clean_url = target['url'].strip()
     
@@ -88,11 +87,9 @@ def monitor_page(target: dict):
         
         # Fetch the raw content of the page
         response = requests.get(clean_url, headers=headers, timeout=10) # 10s timeout on request
-        response.raise_for_status() # Raise an error for bad status codes (4xx or 5xx)
+        response.raise_for_status() 
         
-        # NOTE: This only fetches the HTML before JavaScript executes. 
-        # Since JavaScript renders the scores from free.js, we assume the raw HTML contains 
-        # a structure we can search OR the data itself is included before rendering.
+        # The content fetched is the raw HTML (page source).
         page_text = response.text
         
         found_terms = []
@@ -100,9 +97,8 @@ def monitor_page(target: dict):
         # Check for each target term in the raw text
         for term in target['terms']:
             if term in page_text:
-                # If found, grab the surrounding text context for the email body
                 
-                # NOTE: This method is less accurate than Playwright's JS context but is fast and stable.
+                # NOTE: This searches the raw HTML file content (CTRL+F equivalent)
                 context_lines = [line.strip() for line in page_text.split('\n') if term in line]
 
                 found_terms.append({
@@ -142,18 +138,17 @@ def monitor_page(target: dict):
 
 def main():
     
-    # We revert to the 1-minute schedule now that the job is lightweight
     NUM_CHECKS = 6
     SLEEP_INTERVAL = 10 
     
-    print(f"--- Starting {NUM_CHECKS} checks with a {SLEEP_INTERVAL}-second target interval using lightweight Requests. ---")
+    print(f"--- Starting TEST RUN: {NUM_CHECKS} checks for Stojanovic Nina ---")
     
     for i in range(1, NUM_CHECKS + 1):
         start_time = time.time()
         print(f"\n--- RUN {i}/{NUM_CHECKS} ---")
         
-        for target in TARGETS:
-            monitor_page(target) # No browser object needed
+        # Only monitor the Finished page for the specific test name
+        monitor_page(TARGETS[1]) # TARGETS[1] is the Finished TEST page.
 
         end_time = time.time()
         check_duration = end_time - start_time
@@ -166,7 +161,7 @@ def main():
         elif i < NUM_CHECKS:
              print(f"Check took {check_duration:.2f} seconds. No need to sleep.")
 
-    print(f"--- All {NUM_CHECKS} runs completed. ---")
+    print(f"--- TEST RUN COMPLETED. Check inbox for email. ---")
 
 
 if __name__ == "__main__":
