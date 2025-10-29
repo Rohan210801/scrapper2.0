@@ -4,28 +4,36 @@ from email.mime.multipart import MIMEMultipart
 import time
 import os
 import requests 
+from requests_toolbelt import sessions # This library is used for handling authenticated proxies
 
 # --- CONFIGURATION (TEST MODE) ---
-# We keep this in TEST MODE until the detection is confirmed!
 
+# 1. Email Details (Read securely from GitHub Secrets)
 SMTP_SERVER = "smtp.gmail.com"  
 SMTP_PORT = 587
 SENDER_EMAIL = os.environ.get("SENDER_EMAIL")
 SENDER_PASSWORD = os.environ.get("SENDER_PASSWORD")
 RECEIVER_EMAIL = os.environ.get("RECEIVER_EMAIL") 
 
+# 2. Proxy Details (Read securely from GitHub Secrets)
+PROXY_HOST = os.environ.get("PROXY_HOST")
+PROXY_USER = os.environ.get("PROXY_USER")
+PROXY_PASS = os.environ.get("PROXY_PASS")
+
+# 3. Target Details (Modified for Test)
 TARGETS = [
     {
-        "url": "https://www.livexscores.com/?p=4&sport=tennis", 
+        "url": "https://www.livexscores.com/?p=4&sport=tennis", # In Play page
         "terms": ["- ret."], 
         "type": "Retirement (In Play)"
     },
     {
-        "url": "https://www.livexscores.com/?p=3&sport=tennis", 
+        "url": "https://www.livexscores.com/?p=3&sport=tennis", # Finished page
         "terms": ["Stojanovic Nina"], # <--- ***TEMPORARY TEST TERM***
         "type": "Definitive Status (Finished TEST)"
     }
 ]
+
 
 # --- EMAIL ALERT FUNCTIONS (Unchanged) ---
 
@@ -69,36 +77,54 @@ def send_email_alert(subject, body):
         print(f"An error occurred during email sending: {e}")
 
 
-# --- CORE MONITORING LOGIC (Using full headers) ---
+# --- CORE MONITORING LOGIC (Using Proxy) ---
 
-def monitor_page(target: dict):
+def create_proxied_session():
+    """Creates a requests session configured with the proxy credentials."""
+    if not all([PROXY_HOST, PROXY_USER, PROXY_PASS]):
+        print("CRITICAL PROXY ERROR: Proxy credentials missing. Cannot start proxied session.")
+        # Fallback to a direct session (will definitely fail 403 if proxy needed)
+        return requests.Session() 
+
+    # Construct the authenticated proxy URL
+    if PROXY_USER and PROXY_PASS:
+        proxy_auth = f"{PROXY_USER}:{PROXY_PASS}@"
+    else:
+        # For proxies without authentication (e.g., if you only provide IP:PORT)
+        proxy_auth = ""
+        
+    proxy_url = f"http://{proxy_auth}{PROXY_HOST}"
+    
+    # Create a session and set the proxy
+    session = requests.Session()
+    session.proxies = {
+        "http": proxy_url,
+        "https": proxy_url,
+    }
+    return session
+
+
+def monitor_page(session, target: dict):
     """
-    Monitors a single page by fetching the raw HTML and searching the text.
-    Uses extensive headers to bypass 403 Forbidden errors.
+    Monitors a single page using the provided proxied session.
     """
     clean_url = target['url'].strip()
     
-    # --- FIX: FULL BROWSER HEADER DICTIONARY ---
+    # Masquerade headers
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.9,cs;q=0.8', # Added language headers (site is Czech/English)
-        'Referer': 'https://www.google.com/', # Pretend the user came from Google
-        'DNT': '1',
+        'Accept-Language': 'en-US,en;q=0.9',
         'Connection': 'keep-alive',
-        'Upgrade-Insecure-Requests': '1',
     }
     
     try:
-        # Fetch the raw content of the page
-        response = requests.get(clean_url, headers=headers, timeout=10)
-        
-        # Raise an exception if the status code is 403 or similar
+        # Use the passed session object for the request
+        response = session.get(clean_url, headers=headers, timeout=15) # Increased timeout to 15s for proxy overhead
         response.raise_for_status() 
         
-        # If the request succeeds (status code 200)
+        # The request succeeded (200 status). Now check content.
         page_text = response.text
-        
         found_terms = []
         
         # Check for each target term in the raw text
@@ -134,7 +160,7 @@ def monitor_page(target: dict):
 
     except requests.exceptions.RequestException as e:
         # Log the specific network/403 error
-        print(f"ERROR during raw scrape of {clean_url}: {e}")
+        print(f"ERROR during proxied scrape of {clean_url}: {e}")
         return False
     except Exception as e:
         print(f"ERROR during processing of {clean_url}: {e}")
@@ -146,14 +172,17 @@ def main():
     NUM_CHECKS = 6
     SLEEP_INTERVAL = 10 
     
-    print(f"--- Starting TEST RUN: {NUM_CHECKS} checks with Masquerade Headers ---")
+    # Create the proxied session ONCE
+    session = create_proxied_session()
+    
+    print(f"--- Starting TEST PROXY RUN: {NUM_CHECKS} checks for Stojanovic Nina ---")
     
     for i in range(1, NUM_CHECKS + 1):
         start_time = time.time()
         print(f"\n--- RUN {i}/{NUM_CHECKS} ---")
         
-        # Only monitor the Finished TEST page for the specific test name
-        monitor_page(TARGETS[1]) 
+        # We only run the Finished Test page check in this mode
+        monitor_page(session, TARGETS[1]) 
 
         end_time = time.time()
         check_duration = end_time - start_time
@@ -166,7 +195,7 @@ def main():
         elif i < NUM_CHECKS:
              print(f"Check took {check_duration:.2f} seconds. No need to sleep.")
 
-    print(f"--- TEST RUN COMPLETED. Check log for 403 status update. ---")
+    print(f"--- TEST PROXY RUN COMPLETED. Check inbox for email. ---")
 
 
 if __name__ == "__main__":
