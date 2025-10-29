@@ -5,40 +5,44 @@ import time
 import os
 from playwright.sync_api import sync_playwright, Playwright, TimeoutError # Import Playwright utilities
 
-# --- DIAGNOSTIC MODE CONFIGURATION ---
-# This configuration is designed to run once, print everything it scrapes, and take a screenshot.
+# --- CONFIGURATION ---
 
-# 1. Email Details (Kept for send_email_alert function, but we won't send an email in this test)
-SMTP_SERVER = "smtp.gmail.com"
+# 1. Email Details (Read securely from GitHub Secrets)
+SMTP_SERVER = "smtp.gmail.com"  # Change to "smtp-mail.outlook.com" if needed
 SMTP_PORT = 587
 SENDER_EMAIL = os.environ.get("SENDER_EMAIL")
 SENDER_PASSWORD = os.environ.get("SENDER_PASSWORD")
 RECEIVER_EMAIL = os.environ.get("RECEIVER_EMAIL") 
 
-# 2. Target Details: We will only check the Finished page for a guaranteed term.
+# 2. Target Details: URL and the specific term(s) to look for on that URL
 TARGETS = [
     {
+        "url": "https://www.livexscores.com/?p=4&sport=tennis", # In Play page
+        "terms": ["- ret."], 
+        "type": "Retirement (In Play)"
+    },
+    {
         "url": "https://www.livexscores.com/?p=3&sport=tennis", # Finished page
-        "terms": ["FINISHED", "Finished"], # Search for a guaranteed header text
-        "type": "DIAGNOSTIC TEST"
+        "terms": ["- ret.", "- wo."], # Look for both on the definitive score page
+        "type": "Definitive Status (Finished)"
     }
 ]
 
 # --- GLOBAL TIMEOUT CONSTANTS ---
 BROWSER_LAUNCH_TIMEOUT = 60000 
 NAVIGATION_TIMEOUT = 60000      
-SCORE_TABLE_SELECTOR = "table[width='100%']" 
+# FINAL FIX: Target the main container ID where the dynamic scores are loaded, 
+# which is typically more stable than a generic table tag.
+SCORES_CONTAINER_SELECTOR = "#container" 
 
 
-# --- EMAIL ALERT FUNCTIONS (Unchanged, but not used in main execution) ---
+# --- EMAIL ALERT FUNCTIONS (Unchanged) ---
+
 def send_email_alert(subject, body):
-    # ... (Email function omitted for brevity, it remains the same) ...
     if not all([SENDER_EMAIL, SENDER_PASSWORD, RECEIVER_EMAIL]):
         print("ERROR: Email credentials missing. Check GitHub Secrets.")
         return
-    # ... (Actual email sending logic remains the same) ...
-    # We will skip the implementation here as it is unchanged from your last copy.
-    # [Rest of send_email_alert function remains the same]
+
     try:
         msg = MIMEMultipart()
         msg['From'] = SENDER_EMAIL
@@ -72,66 +76,110 @@ def send_email_alert(subject, body):
         print("CRITICAL ERROR: SMTP Authentication Failed. Check App Password/Sender Email.")
     except Exception as e:
         print(f"An error occurred during email sending: {e}")
+
+
 # --- CORE MONITORING LOGIC ---
 
-def monitor_page(browser, target: dict, run_index: int):
+def monitor_page(browser, target: dict):
     """
-    DIAGNOSTIC MODE: Captures screenshots and page text for inspection.
+    Monitors a single page for a list of specific search terms.
     """
     context = browser.new_context()
     page = context.new_page()
 
     try:
         page.goto(target['url'], wait_until="domcontentloaded", timeout=NAVIGATION_TIMEOUT)
-        page.wait_for_selector(SCORE_TABLE_SELECTOR, timeout=15000)
         
-        # 1. Take Screenshot (File will be saved to the runner's workspace)
-        screenshot_path = f"screenshot_run_{run_index}.png"
-        page.screenshot(path=screenshot_path, full_page=True)
-        print(f"DIAGNOSTIC: Screenshot saved as {screenshot_path}. Check the workspace artifacts.")
-
-        # 2. Extract and Print ALL Visible Page Text
-        full_page_text = page.locator("body").inner_text()
-        print("\n--- DIAGNOSTIC: START OF FULL PAGE TEXT DUMP ---")
-        print(full_page_text)
-        print("--- DIAGNOSTIC: END OF FULL PAGE TEXT DUMP ---\n")
+        # --- FIX: Wait for the main container element to load and stabilize ---
+        # This is more robust than waiting for a generic table tag.
+        page.wait_for_selector(SCORES_CONTAINER_SELECTOR, timeout=20000) # Increased to 20s
+        print(f"Loaded and verified content container for {target['type']}.")
         
-        # 3. Perform standard search for the guaranteed term
-        term_found = False
+        found_terms = []
+        
+        # Check for each target term using optimized XPath search
         for term in target['terms']:
+            
+            # XPath locator finds any visible element containing the search text
             locator = page.locator(f"//*[contains(text(), '{term}')]")
+
             if locator.count() > 0:
-                print(f"DIAGNOSTIC SUCCESS: Guaranteed term '{term}' was found.")
-                term_found = True
-                break
+                # If found, grab the surrounding text context for the email body
+                
+                context_text = page.evaluate(f"""
+                    document.body.innerText
+                        .split('\\n')
+                        .filter(line => line.includes('{term}'))
+                        .join('\\n')
+                """)
+                
+                found_terms.append({
+                    "term": term,
+                    "context": context_text.strip()
+                })
         
-        if not term_found:
-             print("DIAGNOSTIC WARNING: Guaranteed search term was NOT found. This suggests a major structural change to the site.")
-        
-        # IMPORTANT: We are NOT sending an email in this diagnostic test.
+        if found_terms:
+            # Consolidate all found terms into a single email
+            
+            email_body = ""
+            subject_terms = []
+            
+            for item in found_terms:
+                subject_terms.append(item['term'])
+                email_body += (
+                    f"--- Status Found: {item['term']} ---\n"
+                    f"Contextual Line(s) from Page:\n"
+                    f"{item['context']}\n\n"
+                )
+
+            subject = f"ALERT: {target['type']} - Status Detected: {', '.join(subject_terms)}"
+            
+            send_email_alert(subject, email_body)
+            return True
+        else:
+            return False
 
     except TimeoutError:
-        print(f"ERROR: Scraper timed out waiting for scores table on {target['url']}.")
+        print(f"ERROR: Scraper timed out waiting for content container on {target['url']}. (Wait time > 20s)")
+        return False
     except Exception as e:
         print(f"ERROR during Playwright scrape of {target['url']}: {e}")
+        return False
     finally:
         context.close()
 
 
 def main(playwright: Playwright):
     
-    # We only run ONE CHECK in diagnostic mode
-    NUM_CHECKS = 1
+    NUM_CHECKS = 30
+    SLEEP_INTERVAL = 10 
     
-    # Launch browser ONCE per job
+    
     browser = playwright.chromium.launch(timeout=BROWSER_LAUNCH_TIMEOUT)
     print(f"--- Browser launched once for the job. ---")
     
-    # Only run the first check
-    monitor_page(browser, TARGETS[0], 1)
+    print(f"--- Starting {NUM_CHECKS} checks with a {SLEEP_INTERVAL}-second target interval. ---")
+    
+    for i in range(1, NUM_CHECKS + 1):
+        start_time = time.time()
+        print(f"\n--- RUN {i}/{NUM_CHECKS} ---")
+        
+        for target in TARGETS:
+            monitor_page(browser, target)
+
+        end_time = time.time()
+        check_duration = end_time - start_time
+        
+        time_to_sleep = SLEEP_INTERVAL - check_duration
+        
+        if time_to_sleep > 0 and i < NUM_CHECKS:
+            print(f"Check took {check_duration:.2f} seconds. Sleeping for {time_to_sleep:.2f} seconds...")
+            time.sleep(time_to_sleep)
+        elif i < NUM_CHECKS:
+             print(f"Check took {check_duration:.2f} seconds. No need to sleep.")
 
     browser.close()
-    print(f"--- DIAGNOSTIC RUN COMPLETED. Please check logs and artifacts. ---")
+    print(f"--- Browser closed. All {NUM_CHECKS} runs completed. ---")
 
 
 if __name__ == "__main__":
