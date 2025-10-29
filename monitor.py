@@ -1,14 +1,14 @@
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from requests_html import HTMLSession
+# Removed: requests_html (now using Playwright)
+from playwright.sync_api import sync_playwright # Use sync for simpler GitHub Actions script
 import time
-import os # New import to access environment variables (secrets)
+import os 
 
 # --- CONFIGURATION ---
 
 # 1. Email Details (Read securely from GitHub Secrets)
-# NOTE: GitHub Actions will inject these values automatically
 SMTP_SERVER = "smtp.gmail.com"  # Change to "smtp-mail.outlook.com" if using Outlook/Microsoft
 SMTP_PORT = 587
 SENDER_EMAIL = os.environ.get("SENDER_EMAIL")
@@ -58,33 +58,45 @@ def send_email_alert(subject, body):
         print(f"An error occurred during email sending: {e}")
 
 
-# Core logic to scrape and check the page once
+# Core logic to scrape and check the page once (NOW USES PLAYWRIGHT)
 def run_single_check():
     try:
-        session = HTMLSession()
-        r = session.get(URL_TO_MONITOR)
-        
-        # NOTE: This wait time is crucial for scores to load dynamically.
-        r.html.render(timeout=20, sleep=5) 
+        # 1. Setup Playwright (guaranteed clean startup/shutdown)
+        with sync_playwright() as p:
+            # 2. Launch headless Chromium
+            browser = p.chromium.launch()
+            page = browser.new_page()
+            
+            # 3. Navigate to the page
+            page.goto(URL_TO_MONITOR)
+            
+            # 4. WAIT for dynamic content (We wait for 5 seconds for safety)
+            # The previous r.html.render() functionality is now replaced by this wait.
+            time.sleep(5) 
+            
+            # 5. Extract the entire visible text content of the body
+            page_text = page.inner_text('body') 
 
-        page_text = r.html.text
-        found_matches = []
-        
-        for term in SEARCH_TERMS:
-            # We are checking if the entire phrase is present anywhere in the page text
-            if term in page_text:
-                found_matches.append(term)
-        
-        if found_matches:
-            body_content = ", ".join(found_matches)
-            subject = f"ALERT: Walkover/Retirement Found ({body_content})"
-            send_email_alert(subject, body_content)
-            return True # Indicates an alert was sent
-        else:
-            return False # No alert sent
+            browser.close() # Close browser instance
+
+            found_matches = []
+            
+            for term in SEARCH_TERMS:
+                if term in page_text:
+                    found_matches.append(term)
+            
+            if found_matches:
+                body_content = ", ".join(found_matches)
+                subject = f"ALERT: Walkover/Retirement Found ({body_content})"
+                send_email_alert(subject, body_content)
+                return True # Indicates an alert was sent
+            else:
+                return False # No alert sent
 
     except Exception as e:
-        print(f"An error occurred during monitoring: {e}")
+        # Note: If Playwright itself fails to install, this won't catch it, 
+        # but the exit code 100 should now be fixed by the schedule.yml change.
+        print(f"An error occurred during monitoring (Playwright): {e}")
         return False
 
 
@@ -100,5 +112,3 @@ if __name__ == "__main__":
     # Check 2: Runs 30 seconds later
     alert_sent_2 = run_single_check()
     print(f"--- Check 2 finished. Alert sent: {alert_sent_2} ---")
-    
-    # The job finishes, and the next scheduled run starts in ~30 seconds later.
