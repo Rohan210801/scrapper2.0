@@ -15,14 +15,17 @@ SENDER_PASSWORD = os.environ.get("SENDER_PASSWORD")
 RECEIVER_EMAIL = os.environ.get("RECEIVER_EMAIL") 
 
 # 2. Target Details: URL and the specific term(s) to look for on that URL
+# FINAL FIX: Use the stable, direct iframe source URLs instead of the dynamic parent page.
 TARGETS = [
     {
-        "url": "https://www.livexscores.com/?p=4&sport=tennis", # In Play page
+        # Direct URL for In Play (p=4 in old link, likely default_site=4 here)
+        "url": "https://www.livexscores.com/free.php?sport=tennis&default_site=4&iframe_width=1200&iframe_height=1000", 
         "terms": ["- ret."], 
         "type": "Retirement (In Play)"
     },
     {
-        "url": "https://www.livexscores.com/?p=3&sport=tennis", # Finished page
+        # Direct URL for Finished (p=3 in old link, likely default_site=3 here)
+        "url": "https://www.livexscores.com/free.php?sport=tennis&default_site=3&iframe_width=1200&iframe_height=1000", 
         "terms": ["- ret.", "- wo."], 
         "type": "Definitive Status (Finished)"
     }
@@ -31,12 +34,11 @@ TARGETS = [
 # --- GLOBAL TIMEOUT CONSTANTS ---
 BROWSER_LAUNCH_TIMEOUT = 60000 
 NAVIGATION_TIMEOUT = 60000      
-# Using the stable class from your HTML context
-SCORES_CONTAINER_SELECTOR = "#allzapasy" 
+# NEW: Wait for the simplest common element class to confirm data presence
+SCORE_TABLE_ROW_SELECTOR = ".tmava" 
 
 
 # --- EMAIL ALERT FUNCTIONS (Unchanged) ---
-
 def send_email_alert(subject, body):
     if not all([SENDER_EMAIL, SENDER_PASSWORD, RECEIVER_EMAIL]):
         print("ERROR: Email credentials missing. Check GitHub Secrets.")
@@ -82,20 +84,22 @@ def send_email_alert(subject, body):
 def monitor_page(browser, target: dict):
     """
     Monitors a single page for a list of specific search terms.
+    Uses direct scrape of the iframe source URL for stability.
     """
     context = browser.new_context()
     page = context.new_page()
 
     try:
-        # --- FIX: Clean the URL string to remove any trailing whitespace/punctuation ---
+        # Clean the URL string before navigation
         clean_url = target['url'].strip()
         
+        # We expect a much faster load time here as this is likely just the iframe HTML
         page.goto(clean_url, wait_until="domcontentloaded", timeout=NAVIGATION_TIMEOUT)
-        print(f"Attempting to load URL: {clean_url}")
+        print(f"Attempting to load direct source URL: {clean_url}")
         
-        # Wait for the unique #allzapasy ID to confirm dynamic content load
-        page.wait_for_selector(SCORES_CONTAINER_SELECTOR, timeout=20000) 
-        print(f"Loaded and verified content container for {target['type']}.")
+        # Wait for a reliable element *inside* the iframe source (the dark row class)
+        page.wait_for_selector(SCORE_TABLE_ROW_SELECTOR, timeout=20000) 
+        print(f"Loaded and verified score rows for {target['type']}.")
         
         found_terms = []
         
@@ -142,7 +146,7 @@ def monitor_page(browser, target: dict):
             return False
 
     except TimeoutError:
-        print(f"ERROR: Scraper timed out waiting for content container on {clean_url}. (Wait time > 20s)")
+        print(f"ERROR: Scraper timed out waiting for score rows on {clean_url}. (Wait time > 20s)")
         return False
     except Exception as e:
         print(f"ERROR during Playwright scrape of {clean_url}: {e}")
