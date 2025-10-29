@@ -4,7 +4,7 @@ from email.mime.multipart import MIMEMultipart
 import time
 import os
 import requests 
-from requests_toolbelt import sessions # This library is used for handling authenticated proxies
+from requests_toolbelt import sessions
 
 # --- CONFIGURATION (TEST MODE) ---
 
@@ -29,7 +29,8 @@ TARGETS = [
     },
     {
         "url": "https://www.livexscores.com/?p=3&sport=tennis", # Finished page
-        "terms": ["Stojanovic Nina"], # <--- ***TEMPORARY TEST TERM***
+        # --- FINAL TEST FIX: Searching for the exact RAW HTML substring ---
+        "terms": ["Stojanovic Nina</a> (SRB) [164] - ret."], 
         "type": "Definitive Status (Finished TEST)"
     }
 ]
@@ -82,15 +83,13 @@ def send_email_alert(subject, body):
 def create_proxied_session():
     """Creates a requests session configured with the proxy credentials."""
     if not all([PROXY_HOST, PROXY_USER, PROXY_PASS]):
-        print("CRITICAL PROXY ERROR: Proxy credentials missing. Cannot start proxied session.")
-        # Fallback to a direct session (will definitely fail 403 if proxy needed)
+        print("CRITICAL PROXY ERROR: Proxy credentials missing. Cannot start proxied session. Falling back to direct connection.")
         return requests.Session() 
 
     # Construct the authenticated proxy URL
     if PROXY_USER and PROXY_PASS:
         proxy_auth = f"{PROXY_USER}:{PROXY_PASS}@"
     else:
-        # For proxies without authentication (e.g., if you only provide IP:PORT)
         proxy_auth = ""
         
     proxy_url = f"http://{proxy_auth}{PROXY_HOST}"
@@ -129,8 +128,10 @@ def monitor_page(session, target: dict):
         
         # Check for each target term in the raw text
         for term in target['terms']:
-            if term in page_text:
+            # The search is now looking for a raw HTML substring
+            if term in page_text: 
                 
+                # NOTE: This searches the raw HTML file content (CTRL+F equivalent)
                 context_lines = [line.strip() for line in page_text.split('\n') if term in line]
 
                 found_terms.append({
