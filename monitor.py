@@ -6,7 +6,7 @@ import os
 import requests 
 from requests_toolbelt import sessions
 
-# --- CONFIGURATION (FINAL PRODUCTION MODE) ---
+# --- CONFIGURATION (PRODUCTION SEARCH TERM VALIDATION) ---
 
 # 1. Email Details (Read securely from GitHub Secrets)
 SMTP_SERVER = "smtp.gmail.com"  
@@ -20,17 +20,18 @@ PROXY_HOST = os.environ.get("PROXY_HOST")
 PROXY_USER = os.environ.get("PROXY_USER")
 PROXY_PASS = os.environ.get("PROXY_PASS")
 
-# 3. Target Details (FINAL PRODUCTION SEARCH TERMS)
+# 3. Target Details (FINAL VALIDATION TERMS)
 TARGETS = [
     {
         "url": "https://www.livexscores.com/?p=4&sport=tennis", 
-        "terms": ["- ret."], # PRODUCTION TERM: Searching for '-ret.'
+        "terms": ["- ret."], 
         "type": "Retirement (In Play)"
     },
     {
-        "url": "https://www.livexscores.com/?p=3&sport=tennis", 
-        "terms": ["- ret.", "- wo."], # PRODUCTION TERMS: Searching for '-ret.' and '-wo.'
-        "type": "Definitive Status (Finished)"
+        "url": "https://www.livexscores.com/?p=3&sport=tennis", # Finished page
+        # --- VALIDATION TEST: Search for all relevant, stable terms ---
+        "terms": ["Finished", "- ret.", "- wo."], 
+        "type": "Definitive Status (FINAL VALIDATION)"
     }
 ]
 
@@ -131,7 +132,6 @@ def monitor_page(session, target: dict):
         
         # Check for each target term in the raw text
         for term in target['terms']:
-            # This search must find the raw HTML substring
             if term in page_text:
                 
                 context_lines = [line.strip() for line in page_text.split('\n') if term in line]
@@ -179,14 +179,14 @@ def main():
     # Create the proxied session ONCE
     session = create_proxied_session()
     
-    print(f"--- Starting PRODUCTION MONITORING RUN: {NUM_CHECKS} checks with a {SLEEP_INTERVAL}-second target interval. ---")
+    print(f"--- Starting FINAL VALIDATION TEST: {NUM_CHECKS} checks for all production terms ---")
     
     for i in range(1, NUM_CHECKS + 1):
         start_time = time.time()
         print(f"\n--- RUN {i}/{NUM_CHECKS} ---")
         
-        for target in TARGETS:
-            monitor_page(session, target) # Monitor both targets
+        # Monitor the Finished page using the complex validation array
+        monitor_page(session, TARGETS[1]) 
 
         end_time = time.time()
         check_duration = end_time - start_time
@@ -199,7 +199,7 @@ def main():
         elif i < NUM_CHECKS:
              print(f"CYCLE INFO: Check took {check_duration:.2f}s. No need to sleep.")
 
-    print(f"--- PRODUCTION MONITORING RUN COMPLETED. ---")
+    print(f"--- FINAL VALIDATION TEST COMPLETED. ---")
 
 
 if __name__ == "__main__":
