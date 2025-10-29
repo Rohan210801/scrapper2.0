@@ -6,7 +6,7 @@ import os
 import requests 
 from requests_toolbelt import sessions
 
-# --- CONFIGURATION (PRODUCTION MODE) ---
+# --- CONFIGURATION (FINAL PRODUCTION MODE) ---
 
 # 1. Email Details (Read securely from GitHub Secrets)
 SMTP_SERVER = "smtp.gmail.com"  
@@ -24,12 +24,12 @@ PROXY_PASS = os.environ.get("PROXY_PASS")
 TARGETS = [
     {
         "url": "https://www.livexscores.com/?p=4&sport=tennis", 
-        "terms": [" - ret."], # PRODUCTION TERM: Searching for space-dash-space-ret
+        "terms": ["- ret."], # PRODUCTION TERM: Searching for '-ret.'
         "type": "Retirement (In Play)"
     },
     {
         "url": "https://www.livexscores.com/?p=3&sport=tennis", 
-        "terms": [" - ret.", " - wo."], # FINAL PRODUCTION TERMS
+        "terms": ["- ret.", "- wo."], # PRODUCTION TERMS: Searching for '-ret.' and '-wo.'
         "type": "Definitive Status (Finished)"
     }
 ]
@@ -131,7 +131,7 @@ def monitor_page(session, target: dict):
         
         # Check for each target term in the raw text
         for term in target['terms']:
-            # The search must find the raw HTML substring
+            # This search must find the raw HTML substring
             if term in page_text:
                 
                 context_lines = [line.strip() for line in page_text.split('\n') if term in line]
