@@ -3,35 +3,31 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import time
 import os
-import requests # Lightweight library replaces Playwright
+import requests 
 
 # --- CONFIGURATION (TEST MODE) ---
+# We keep this in TEST MODE until the detection is confirmed!
 
-# 1. Email Details (Read securely from GitHub Secrets)
 SMTP_SERVER = "smtp.gmail.com"  
 SMTP_PORT = 587
 SENDER_EMAIL = os.environ.get("SENDER_EMAIL")
 SENDER_PASSWORD = os.environ.get("SENDER_PASSWORD")
 RECEIVER_EMAIL = os.environ.get("RECEIVER_EMAIL") 
 
-# 2. Target Details: URL and the specific term(s) to look for on that URL
 TARGETS = [
     {
-        # In Play page (Still searches for general retirements, but won't likely trigger)
         "url": "https://www.livexscores.com/?p=4&sport=tennis", 
         "terms": ["- ret."], 
         "type": "Retirement (In Play)"
     },
     {
-        # Finished page (FORCED TEST)
         "url": "https://www.livexscores.com/?p=3&sport=tennis", 
         "terms": ["Stojanovic Nina"], # <--- ***TEMPORARY TEST TERM***
         "type": "Definitive Status (Finished TEST)"
     }
 ]
 
-
-# --- EMAIL ALERT FUNCTIONS ---
+# --- EMAIL ALERT FUNCTIONS (Unchanged) ---
 
 def send_email_alert(subject, body):
     if not all([SENDER_EMAIL, SENDER_PASSWORD, RECEIVER_EMAIL]):
@@ -73,23 +69,34 @@ def send_email_alert(subject, body):
         print(f"An error occurred during email sending: {e}")
 
 
-# --- CORE MONITORING LOGIC (Using simple requests) ---
+# --- CORE MONITORING LOGIC (Using full headers) ---
 
 def monitor_page(target: dict):
     """
     Monitors a single page by fetching the raw HTML and searching the text.
+    Uses extensive headers to bypass 403 Forbidden errors.
     """
     clean_url = target['url'].strip()
     
+    # --- FIX: FULL BROWSER HEADER DICTIONARY ---
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9,cs;q=0.8', # Added language headers (site is Czech/English)
+        'Referer': 'https://www.google.com/', # Pretend the user came from Google
+        'DNT': '1',
+        'Connection': 'keep-alive',
+        'Upgrade-Insecure-Requests': '1',
+    }
+    
     try:
-        # Use a real browser User-Agent to avoid simple blocking
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
-        
         # Fetch the raw content of the page
-        response = requests.get(clean_url, headers=headers, timeout=10) # 10s timeout on request
+        response = requests.get(clean_url, headers=headers, timeout=10)
+        
+        # Raise an exception if the status code is 403 or similar
         response.raise_for_status() 
         
-        # The content fetched is the raw HTML (page source).
+        # If the request succeeds (status code 200)
         page_text = response.text
         
         found_terms = []
@@ -98,7 +105,6 @@ def monitor_page(target: dict):
         for term in target['terms']:
             if term in page_text:
                 
-                # NOTE: This searches the raw HTML file content (CTRL+F equivalent)
                 context_lines = [line.strip() for line in page_text.split('\n') if term in line]
 
                 found_terms.append({
@@ -107,7 +113,6 @@ def monitor_page(target: dict):
                 })
         
         if found_terms:
-            # Consolidate all found terms into a single email
             
             email_body = ""
             subject_terms = []
@@ -128,7 +133,7 @@ def monitor_page(target: dict):
             return False
 
     except requests.exceptions.RequestException as e:
-        # Catch network or timeout errors cleanly
+        # Log the specific network/403 error
         print(f"ERROR during raw scrape of {clean_url}: {e}")
         return False
     except Exception as e:
@@ -141,14 +146,14 @@ def main():
     NUM_CHECKS = 6
     SLEEP_INTERVAL = 10 
     
-    print(f"--- Starting TEST RUN: {NUM_CHECKS} checks for Stojanovic Nina ---")
+    print(f"--- Starting TEST RUN: {NUM_CHECKS} checks with Masquerade Headers ---")
     
     for i in range(1, NUM_CHECKS + 1):
         start_time = time.time()
         print(f"\n--- RUN {i}/{NUM_CHECKS} ---")
         
-        # Only monitor the Finished page for the specific test name
-        monitor_page(TARGETS[1]) # TARGETS[1] is the Finished TEST page.
+        # Only monitor the Finished TEST page for the specific test name
+        monitor_page(TARGETS[1]) 
 
         end_time = time.time()
         check_duration = end_time - start_time
@@ -161,7 +166,7 @@ def main():
         elif i < NUM_CHECKS:
              print(f"Check took {check_duration:.2f} seconds. No need to sleep.")
 
-    print(f"--- TEST RUN COMPLETED. Check inbox for email. ---")
+    print(f"--- TEST RUN COMPLETED. Check log for 403 status update. ---")
 
 
 if __name__ == "__main__":
