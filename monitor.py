@@ -75,7 +75,16 @@ def send_email_alert(subject, body):
         print(f"An error occurred during email sending: {e}")
 
 
-# NOTE: send_test_email() function is REMOVED in this version.
+def send_test_email():
+    """Forces a test email to be sent using the configured SMTP details."""
+    test_subject = "SUCCESS: Monitoring Email Test"
+    test_body = (
+        f"This is a test run to confirm your email configuration (App Password, SMTP) is working.\n"
+        f"URL 1 (In Play): {TARGETS[0]['url']} is being checked for '{TARGETS[0]['term']}'\n"
+        f"URL 2 (Not Started): {TARGETS[1]['url']} is being checked for '{TARGETS[1]['term']}'\n"
+        f"\nIf you received this, your email setup is correct. DELETE the call to this function immediately after verifying!"
+    )
+    send_email_alert(test_subject, test_body)
 
 
 # --- CORE MONITORING LOGIC ---
@@ -98,6 +107,7 @@ def monitor_page(browser, target: dict):
 
         if locator.count() > 0:
             
+            # Extract surrounding text to give context in the email
             context_text = page.evaluate(f"document.body.innerText.split('\\n').filter(line => line.includes('{search_term}')).join('\\n')")
             
             subject = f"ALERT: {target['type']} Detected!"
@@ -163,6 +173,11 @@ def main():
 
 
 if __name__ == "__main__":
+    
+    # TEMPORARY TEST: Run this function to verify email sending. 
+    # REMOVE this line after testing is successful.
+    send_test_email() 
+    
     # Run the main monitoring job
     try:
         main()
