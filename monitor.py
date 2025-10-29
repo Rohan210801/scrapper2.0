@@ -22,10 +22,10 @@ TARGETS = [
         "terms": ["- ret."], # Only look for retirement in real-time play
         "type": "Retirement (In Play)"
     },
-    {
+{
         "url": "https://www.livexscores.com/?p=3&sport=tennis", # Finished page
-        "terms": ["- ret.", "- wo."], # Look for both on the definitive score page
-        "type": "Definitive Status (Finished)"
+        "terms": ["Stojanovic Nina"],  # <-- TEMPORARY TEST TERM
+        "type": "Definitive Status (Finished TEST)"
     }
 ]
 
