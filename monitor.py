@@ -86,6 +86,7 @@ def monitor_page(browser, target: dict):
     page = context.new_page()
 
     try:
+        # Navigate to the URL, waiting for the DOM to load
         page.goto(target['url'], wait_until="domcontentloaded", timeout=NAVIGATION_TIMEOUT)
         
         search_term = target['term']
@@ -96,7 +97,6 @@ def monitor_page(browser, target: dict):
         if locator.count() > 0:
             
             # Extract surrounding text to give context in the email
-            # This is done *only* after a match is found, saving processing time
             context_text = page.evaluate(f"document.body.innerText.split('\\n').filter(line => line.includes('{search_term}')).join('\\n')")
             
             subject = f"ALERT: {target['type']} Detected!"
@@ -124,7 +124,8 @@ def monitor_page(browser, target: dict):
 
 
 def main():
-    NUM_CHECKS = 6
+    # Runs 30 times within the 5-minute GitHub Action window (30 * 10 seconds = 300 seconds)
+    NUM_CHECKS = 30 
     SLEEP_INTERVAL = 10 
     
     # Ensure Chromium browser dependencies are installed on the runner
