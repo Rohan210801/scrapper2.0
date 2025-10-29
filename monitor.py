@@ -5,9 +5,9 @@ import time
 import os
 import requests 
 from requests_toolbelt import sessions
-from bs4 import BeautifulSoup # Used for robust HTML parsing
+from bs4 import BeautifulSoup 
 
-# --- CONFIGURATION (FINAL VALIDATION TEST) ---
+# --- CONFIGURATION (FINAL VALIDATION TEST - DIRECT ACCESS) ---
 
 # 1. Email Details (Read securely from GitHub Secrets)
 SMTP_SERVER = "smtp.gmail.com"  
@@ -24,14 +24,14 @@ PROXY_PASS = os.environ.get("PROXY_PASS")
 # 3. Target Details (VALIDATION TERMS)
 TARGETS = [
     {
-        "url": "https://www.livescorehunter.com/tennis-livescore-live-streaming", 
-        "link_id": 'link[4]', 
+        # Direct Live In-Play data source URL (p=4)
+        "url": "https://www.livexscores.com/paid.php?p=4&sport=tennis-lsh&style=xxeee,x425d3a,x000,xaaa,xc00,x425d3a,xfff,xddd,xc00,verdana,11,xeee,xfff,xeee,NaN,xc00&timezone=+0", 
         "terms": ["- ret."], 
         "type": "Retirement (In Play)"
     },
     {
-        "url": "https://www.livescorehunter.com/tennis-livescore-live-streaming", 
-        "link_id": 'link[3]', 
+        # Direct Finished data source URL (p=3)
+        "url": "https://www.livexscores.com/paid.php?p=3&sport=tennis-lsh&style=xxeee,x425d3a,x000,xaaa,xc00,x425d3a,xfff,xddd,xc00,verdana,11,xeee,xfff,xeee,NaN,xc00&timezone=+0", 
         # FINAL TEST: Search for a guaranteed country code (GBR)
         "terms": ["GBR"], 
         "type": "Definitive Status (Finished GBR TEST)"
@@ -111,11 +111,10 @@ def create_proxied_session():
 
 def monitor_page(session, target: dict):
     """
-    1. Fetches the main page to get the IFRAME URL from the link's onclick attribute.
-    2. Fetches the content from the IFRAME URL directly.
-    3. Searches the IFRAME content using BS4 for the status flag.
+    Fetches the content from the stable data source URL directly and searches using BS4.
     """
-    clean_url = target['url'].strip()
+    # The URL is pulled directly from the target dictionary now
+    clean_url = target['url'].strip() 
     
     # Masquerade headers
     headers = {
@@ -126,43 +125,18 @@ def monitor_page(session, target: dict):
     }
     
     try:
-        # --- STEP 1: Get the IFRAME Source URL from the Shell Page ---
-        print(f"NETWORK: Fetching main page to locate data source for {target['type']}...")
+        # --- Fetch the Raw Content of the IFRAME URL Directly ---
+        print(f"NETWORK: Fetching {target['type']} data from {clean_url}...")
         
-        response = session.get(clean_url, headers=headers, timeout=15)
-        response.raise_for_status() 
-        
-        soup = BeautifulSoup(response.text, 'html.parser')
-        
-        # Find the specific link element using the 'onclick' attribute
-        link_element = soup.find('a', onclick=target['link_id'])
-        
-        if not link_element or not link_element.get('href'):
-            # The test should fail here if the link ID is wrong, but let's assume the previous ID works
-            # We are now searching for the element based on the onclick attribute
-            link_element = soup.find('a', onclick=target['onclick_attr'])
-
-            if not link_element or not link_element.get('href'):
-                print(f"DETECTION ERROR: Could not find link element with onclick={target['onclick_attr']} or its href attribute.")
-                return False
-            
-        # The href attribute contains the full path to the data source
-        iframe_src = link_element.get('href')
-        base_url = "https://www.livexscores.com/"
-        full_data_url = base_url + iframe_src
-        print(f"DATA SOURCE FOUND: Directly scraping content from {full_data_url}")
-
-
-        # --- STEP 2: Fetch the Raw Content of the IFRAME URL ---
-        response_data = session.get(full_data_url, headers=headers, timeout=15)
+        response_data = session.get(clean_url, headers=headers, timeout=15)
         response_data.raise_for_status()
         
-        # 3. Parse the content with BeautifulSoup
+        # 2. Parse the content with BeautifulSoup
         soup_data = BeautifulSoup(response_data.text, 'html.parser')
         
         found_terms = []
         
-        # 4. Search for each term using the precise BeautifulSoup structure
+        # 3. Search for each term using the precise BeautifulSoup structure
         for term in target['terms']:
             
             # Use find_all(string=True) to grab all text nodes in the document
@@ -210,8 +184,7 @@ def monitor_page(session, target: dict):
     except Exception as e:
         print(f"PROCESSING ERROR: during {target['type']} processing: {e}")
         return False
-    
-# --- MAIN EXECUTION ---
+
 
 def main():
     
@@ -221,7 +194,7 @@ def main():
     # Create the proxied session ONCE
     session = create_proxied_session()
     
-    print(f"--- Starting FINAL VALIDATION TEST: {NUM_CHECKS} checks for '(GBR)' ---")
+    print(f"--- Starting FINAL VALIDATION TEST (Direct Access): {NUM_CHECKS} checks for '(GBR)' ---")
     
     for i in range(1, NUM_CHECKS + 1):
         start_time = time.time()
