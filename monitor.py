@@ -6,7 +6,7 @@ import os
 import requests 
 from requests_toolbelt import sessions
 
-# --- CONFIGURATION (PRODUCTION MODE) ---
+# --- CONFIGURATION (TEST MODE) ---
 
 # 1. Email Details (Read securely from GitHub Secrets)
 SMTP_SERVER = "smtp.gmail.com"  
@@ -20,26 +20,24 @@ PROXY_HOST = os.environ.get("PROXY_HOST")
 PROXY_USER = os.environ.get("PROXY_USER")
 PROXY_PASS = os.environ.get("PROXY_PASS")
 
-# 3. Target Details (FINAL PRODUCTION SEARCH TERMS)
+# 3. Target Details (Modified for Test)
 TARGETS = [
     {
-        "url": "https://www.livexscores.com/?p=4&sport=tennis", 
+        "url": "https://www.livexscores.com/?p=4&sport=tennis", # In Play page
         "terms": ["- ret."], 
         "type": "Retirement (In Play)"
     },
     {
-        "url": "https://www.livexscores.com/?p=3&sport=tennis", 
-        "terms": ["- ret.", "- wo."], # FINAL PRODUCTION TERMS
-        "type": "Definitive Status (Finished)"
+        "url": "https://www.livexscores.com/?p=3&sport=tennis", # Finished page
+        "terms": ["Stojanovic Nina"], # <--- ***TEMPORARY TEST TERM***
+        "type": "Definitive Status (Finished TEST)"
     }
 ]
 
 
-# --- EMAIL ALERT FUNCTIONS ---
+# --- EMAIL ALERT FUNCTIONS (Unchanged) ---
 
 def send_email_alert(subject, body):
-    # This function is the only one that can cause a delay or failure in delivery
-    
     if not all([SENDER_EMAIL, SENDER_PASSWORD, RECEIVER_EMAIL]):
         print("ERROR: Email credentials missing. Check GitHub Secrets.")
         return False
@@ -88,7 +86,7 @@ def send_email_alert(subject, body):
 def create_proxied_session():
     """Creates a requests session configured with the proxy credentials."""
     if not all([PROXY_HOST, PROXY_USER, PROXY_PASS]):
-        print("CRITICAL PROXY ERROR: Proxy credentials missing. Cannot start proxied session.")
+        print("CRITICAL PROXY ERROR: Proxy credentials missing. Cannot start proxied session. Falling back to direct connection.")
         return requests.Session() 
 
     # Construct the authenticated proxy URL
@@ -126,10 +124,9 @@ def monitor_page(session, target: dict):
         print(f"NETWORK: Fetching {target['type']} data from {clean_url}...")
         
         # Use the passed session object for the request
-        response = session.get(clean_url, headers=headers, timeout=15) 
+        response = session.get(clean_url, headers=headers, timeout=15) # Increased timeout to 15s for proxy overhead
         response.raise_for_status() 
         
-        # The request succeeded (200 status). Now check content.
         page_text = response.text
         found_terms = []
         
@@ -182,14 +179,13 @@ def main():
     # Create the proxied session ONCE
     session = create_proxied_session()
     
-    print(f"--- Starting PRODUCTION PROXY RUN: {NUM_CHECKS} checks with a {SLEEP_INTERVAL}-second target interval. ---")
+    print(f"--- Starting TEST PROXY RUN: {NUM_CHECKS} checks for Stojanovic Nina ---")
     
     for i in range(1, NUM_CHECKS + 1):
         start_time = time.time()
         print(f"\n--- RUN {i}/{NUM_CHECKS} ---")
         
-        # Monitor BOTH targets in production mode
-        monitor_page(session, TARGETS[0])
+        # We only run the Finished Test page check in this mode
         monitor_page(session, TARGETS[1]) 
 
         end_time = time.time()
@@ -203,7 +199,7 @@ def main():
         elif i < NUM_CHECKS:
              print(f"CYCLE INFO: Check took {check_duration:.2f}s. No need to sleep.")
 
-    print(f"--- PRODUCTION PROXY RUN COMPLETED. ---")
+    print(f"--- TEST PROXY RUN COMPLETED. Check log for SMTP success. ---")
 
 
 if __name__ == "__main__":
