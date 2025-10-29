@@ -24,13 +24,15 @@ PROXY_PASS = os.environ.get("PROXY_PASS")
 # 3. Target Details (VALIDATION TERMS)
 TARGETS = [
     {
-        "url": "https://www.livexscores.com/?p=4&sport=tennis", 
-        "terms": ["- ret."], # Standard monitoring term (Not used in this test run)
+        "url": "https://www.livescorehunter.com/tennis-livescore-live-streaming", 
+        "link_id": 'link[4]', # In Play Link ID (Not used in this specific test run)
+        "terms": ["- ret."], 
         "type": "Retirement (In Play)"
     },
     {
-        "url": "https://www.livexscores.com/?p=3&sport=tennis", # Finished page
-        # FINAL TEST: Search ONLY for the guaranteed country code (GBR)
+        "url": "https://www.livescorehunter.com/tennis-livescore-live-streaming", 
+        "link_id": 'link[3]', # Finished Link ID
+        # FINAL TEST: Search for a guaranteed country code (GBR)
         "terms": ["GBR"], 
         "type": "Definitive Status (Finished GBR TEST)"
     }
@@ -58,7 +60,7 @@ def send_email_alert(subject, body):
             <p style="font-size: 16px;">The automated monitoring script has found a matching event:</p>
             <p style="white-space: pre-wrap; font-weight: bold; color: red; background-color: #f7f7f7; padding: 10px; border-radius: 5px;">{body}</p>
             <p><strong>Action Required:</strong> Please check the website immediately for details.</p>
-            <a href="{TARGETS[0]['url']}" style="display: inline-block; padding: 10px 20px; color: white; background-color: #007bff; text-decoration: none; border-radius: 5px;">View Live Scores (In Play)</a>
+            <a href="{TARGETS[0]['url']}" style="display: inline-block; padding: 10px 20px; color: white; background-color: #007bff; text-decoration: none; border-radius: 5px;">View Live Scores</a>
             <hr>
             <p style="font-size: 10px; color: #999;">This alert was generated automatically.</p>
           </body>
@@ -109,7 +111,9 @@ def create_proxied_session():
 
 def monitor_page(session, target: dict):
     """
-    Monitors a single page by fetching the raw HTML and searching using BeautifulSoup.
+    1. Fetches the main page to get the IFRAME URL from the link ID.
+    2. Fetches the content from the IFRAME URL directly.
+    3. Searches the IFRAME content using BS4 for the status flag.
     """
     clean_url = target['url'].strip()
     
@@ -122,22 +126,42 @@ def monitor_page(session, target: dict):
     }
     
     try:
-        print(f"NETWORK: Fetching {target['type']} data from {clean_url}...")
+        # --- STEP 1: Get the IFRAME Source URL from the Shell Page ---
+        print(f"NETWORK: Fetching main page to locate data source for {target['type']}...")
         
-        # 1. Fetch raw content
         response = session.get(clean_url, headers=headers, timeout=15)
         response.raise_for_status() 
         
-        # 2. Parse the content with BeautifulSoup
         soup = BeautifulSoup(response.text, 'html.parser')
+        
+        # Find the specific link element using the 'link_id' provided (e.g., link[3] or link[4])
+        link_element = soup.find('a', id=target['link_id'])
+        
+        if not link_element or not link_element.get('href'):
+            print(f"DETECTION ERROR: Could not find link element with ID {target['link_id']} or its href attribute.")
+            return False
+            
+        # The href attribute contains the path to the data source
+        iframe_src = link_element.get('href')
+        base_url = "https://www.livexscores.com/" 
+        full_data_url = base_url + iframe_src
+        print(f"DATA SOURCE FOUND: Directly scraping content from {full_data_url}")
+
+
+        # --- STEP 2: Fetch the Raw Content of the IFRAME URL ---
+        response_data = session.get(full_data_url, headers=headers, timeout=15)
+        response_data.raise_for_status()
+        
+        # 3. Parse the content with BeautifulSoup
+        soup_data = BeautifulSoup(response_data.text, 'html.parser')
         
         found_terms = []
         
-        # 3. Search for each term using the precise BeautifulSoup structure
+        # 4. Search for each term using the precise BeautifulSoup structure
         for term in target['terms']:
             
             # Use find_all(string=True) to grab all text nodes in the document
-            all_text_nodes = soup.find_all(string=True)
+            all_text_nodes = soup_data.find_all(string=True)
             
             # Filter the text nodes to find lines that contain the target term
             matching_lines = [
@@ -149,7 +173,6 @@ def monitor_page(session, target: dict):
             if matching_lines:
                 found_terms.append({
                     "term": term,
-                    # Join the unique matching lines found by BS4
                     "context": "\n".join(matching_lines) 
                 })
         
@@ -176,12 +199,13 @@ def monitor_page(session, target: dict):
             return False
 
     except requests.exceptions.RequestException as e:
-        print(f"NETWORK ERROR: Failed to fetch {clean_url}: {e}")
+        print(f"NETWORK ERROR: Failed to fetch data source: {e}")
         return False
     except Exception as e:
         print(f"PROCESSING ERROR: during {target['type']} processing: {e}")
         return False
-
+    
+# --- MAIN EXECUTION ---
 
 def main():
     
