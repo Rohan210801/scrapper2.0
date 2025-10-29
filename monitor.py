@@ -4,7 +4,7 @@ from email.mime.multipart import MIMEMultipart
 import time
 import os
 from playwright.sync_api import sync_playwright, Playwright, TimeoutError
-import requests # Still needed for header utility only, but will be bypassed
+import requests 
 
 # --- CONFIGURATION (FINAL PRODUCTION MODE - PLAYWRIGHT) ---
 
@@ -29,7 +29,7 @@ TARGETS = [
     },
     {
         "url": "https://www.livexscores.com/?p=3&sport=tennis", 
-        # FINAL TEST TERM (Forcing test on GBR to confirm detection logic)
+        # TEST TERM: Searching for the most reliable country code for testing detection logic
         "terms": ["(GBR)"], 
         "type": "Definitive Status (Finished GBR TEST)"
     }
@@ -38,7 +38,7 @@ TARGETS = [
 # --- GLOBAL TIMEOUT CONSTANTS ---
 BROWSER_LAUNCH_TIMEOUT = 60000 
 NAVIGATION_TIMEOUT = 60000      
-SCORE_TABLE_ROW_SELECTOR = ".tmava" # We'll try to wait for this element
+SCORE_TABLE_ROW_SELECTOR = ".tmava" # Element we wait for
 
 
 # --- EMAIL ALERT FUNCTIONS (Unchanged) ---
@@ -90,10 +90,11 @@ def send_email_alert(subject, body):
 def monitor_page(browser, target: dict):
     """
     Monitors a single page using the Playwright headless browser forced to use the proxy.
+    Includes diagnostic text dump.
     """
     clean_url = target['url'].strip()
     
-    # Masquerade headers (Playwright does not automatically send all of these)
+    # Masquerade headers (Playwright)
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
     }
@@ -110,14 +111,19 @@ def monitor_page(browser, target: dict):
         page.wait_for_selector(SCORE_TABLE_ROW_SELECTOR, timeout=20000) 
         print(f"BROWSER SUCCESS: Score table rendered.")
 
-        # --- Mimic CTRL+F: Read all visible text ---
+        # --- DIAGNOSTIC STEP: DUMP ALL RENDERED TEXT ---
         page_text = page.locator("body").inner_text()
+        print("\n--- RAW RENDERED PAGE TEXT DUMP START ---")
+        print(page_text)
+        print("--- RAW RENDERED PAGE TEXT DUMP END ---")
+        
         found_terms = []
         
+        # --- DETECTION LOGIC ---
         for term in target['terms']:
             if term in page_text:
                 
-                # Get surrounding context lines (this is now based on rendered text, not raw HTML)
+                # Get surrounding context lines (this is based on rendered text)
                 context_lines = [line.strip() for line in page_text.split('\n') if term in line]
 
                 found_terms.append({
@@ -159,7 +165,7 @@ def monitor_page(browser, target: dict):
 
 def main():
     
-    NUM_CHECKS = 6
+    NUM_CHECKS = 1 # Only one check for debugging speed
     SLEEP_INTERVAL = 10 
     
     # --- PROXY CONFIGURATION FOR PLAYWRIGHT LAUNCH ---
@@ -173,7 +179,7 @@ def main():
     # Ensure Playwright browser binaries are installed
     os.system("playwright install chromium")
     
-    print(f"--- Starting FINAL TEST RUN (Playwright/Proxy): {NUM_CHECKS} checks ---")
+    print(f"--- Starting DEBUG RUN (Playwright/Proxy): DUMPING RENDERED CONTENT ---")
     
     try:
         with sync_playwright() as playwright:
@@ -182,27 +188,12 @@ def main():
             browser = playwright.chromium.launch(timeout=BROWSER_LAUNCH_TIMEOUT, proxy=proxy_config)
             print(f"--- Browser launched once via proxy: {PROXY_HOST} ---")
             
-            for i in range(1, NUM_CHECKS + 1):
-                start_time = time.time()
-                print(f"\n--- RUN {i}/{NUM_CHECKS} ---")
-                
-                # We only run the Finished Test page check in this mode
-                monitor_page(browser, TARGETS[1]) 
-
-                end_time = time.time()
-                check_duration = end_time - start_time
-                
-                time_to_sleep = SLEEP_INTERVAL - check_duration
-                
-                if time_to_sleep > 0 and i < NUM_CHECKS:
-                    print(f"CYCLE INFO: Sleeping for {time_to_sleep:.2f} seconds...")
-                    time.sleep(time_to_sleep)
-                elif i < NUM_CHECKS:
-                     print(f"CYCLE INFO: Check took {check_duration:.2f}s. No need to sleep.")
+            # Run only one check for debug
+            monitor_page(browser, TARGETS[1]) 
 
             browser.close()
-            print(f"--- FINAL TEST RUN COMPLETED. ---")
+            print(f"--- DEBUG RUN COMPLETED. Review the 'RAW RENDERED PAGE TEXT DUMP' above. ---")
 
     except Exception as e:
         print(f"FATAL SCRIPT ERROR: {e}")
-        print("HINT: If this is a Playwright/Chromium error, ensure you ran 'playwright install chromium'.")
+        print("HINT: Fatal error occurred during setup or teardown.")
