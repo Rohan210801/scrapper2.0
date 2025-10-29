@@ -7,7 +7,7 @@ import requests
 from requests_toolbelt import sessions
 from bs4 import BeautifulSoup # The final tool for structural parsing
 
-# --- CONFIGURATION (PRODUCTION DEPLOYMENT) ---
+# --- CONFIGURATION (FINAL VALIDATION TEST) ---
 
 # 1. Email Details (Read securely from GitHub Secrets)
 SMTP_SERVER = "smtp.gmail.com"  
@@ -21,19 +21,18 @@ PROXY_HOST = os.environ.get("PROXY_HOST")
 PROXY_USER = os.environ.get("PROXY_USER")
 PROXY_PASS = os.environ.get("PROXY_PASS")
 
-# 3. Target Details: FINAL, STABLE DIRECT SOURCE URLs
+# 3. Target Details (VALIDATION TERMS)
 TARGETS = [
     {
-        # Direct Live In-Play data source URL (p=4)
         "url": "https://www.livexscores.com/paid.php?p=4&sport=tennis-lsh&style=xxeee,x425d3a,x000,xaaa,xc00,x425d3a,xfff,xddd,xc00,verdana,11,xeee,xfff,xeee,NaN,xc00&timezone=+0", 
-        "terms": ["- ret."], 
+        "terms": ["- ret."], # Standard monitoring term (Skipped in this specific test run)
         "type": "Retirement (In Play)"
     },
     {
-        # Direct Finished data source URL (p=3)
         "url": "https://www.livexscores.com/paid.php?p=3&sport=tennis-lsh&style=xxeee,x425d3a,x000,xaaa,xc00,x425d3a,xfff,xddd,xc00,verdana,11,xeee,xfff,xeee,NaN,xc00&timezone=+0", 
-        "terms": ["- ret.", "- wo."], 
-        "type": "Definitive Status (Finished)"
+        # FINAL TEST: Search for a guaranteed country code (GBR)
+        "terms": ["GBR"], 
+        "type": "Definitive Status (Finished GBR TEST)"
     }
 ]
 
@@ -51,6 +50,7 @@ def send_email_alert(subject, body):
         msg['To'] = RECEIVER_EMAIL
         msg['Subject'] = subject
         
+        # HTML body for a nice-looking email alert
         html_body = f"""
         <html>
           <body>
@@ -125,33 +125,30 @@ def monitor_page(session, target: dict):
         print(f"NETWORK: Fetching {target['type']} data from {clean_url}...")
         
         # 1. Fetch raw content
-        response = session.get(clean_url, headers=headers, timeout=15)
-        response.raise_for_status() 
+        response_data = session.get(clean_url, headers=headers, timeout=15)
+        response_data.raise_for_status()
         
         # 2. Parse the content with BeautifulSoup
-        soup_data = BeautifulSoup(response.text, 'html.parser')
+        soup_data = BeautifulSoup(response_data.text, 'html.parser')
         
         found_terms = []
         
-        # 3. Search for each term using the precise BeautifulSoup structure
+        # 3. Structural Search (Mimicking innerText/CTRL+F)
         for term in target['terms']:
             
-            # Use find_all(string=True) to grab all text nodes in the document
-            all_text_nodes = soup_data.find_all(string=True)
-            
-            # Filter the text nodes to find lines that contain the target term
-            matching_lines = [
-                node.strip() for node in all_text_nodes 
-                if term in node 
-                and len(node.strip()) > 5 # Ignore small, junk matches
-            ]
+            # Find all <div> elements with the 'overflow:hidden' style, which are the score lines
+            score_divs = soup_data.find_all('div', style=lambda value: value and 'overflow:hidden' in value)
 
-            if matching_lines:
-                found_terms.append({
-                    "term": term,
-                    # Join the unique matching lines found by BS4
-                    "context": "\n".join(matching_lines) 
-                })
+            for div in score_divs:
+                # Concatenate all text inside the div, ignoring HTML tags (the key fix!)
+                full_concatenated_text = div.get_text(separator=' ', strip=True) 
+                
+                # Check if the clean, concatenated text contains the term
+                if term in full_concatenated_text:
+                    found_terms.append({
+                        "term": term,
+                        "context": full_concatenated_text # Use the clean text for context
+                    })
         
         if found_terms:
             print(f"DETECTION SUCCESS: Found required term(s) in {target['type']} page.")
@@ -191,14 +188,14 @@ def main():
     # Create the proxied session ONCE
     session = create_proxied_session()
     
-    print(f"--- Starting PRODUCTION MONITORING RUN: {NUM_CHECKS} checks with a {SLEEP_INTERVAL}-second target interval. ---")
+    print(f"--- Starting FINAL VALIDATION TEST: {NUM_CHECKS} checks for '(GBR)' ---")
     
     for i in range(1, NUM_CHECKS + 1):
         start_time = time.time()
         print(f"\n--- RUN {i}/{NUM_CHECKS} ---")
         
-        for target in TARGETS:
-            monitor_page(session, target) # Monitor both targets
+        # We only run the Finished Test page check in this mode
+        monitor_page(session, TARGETS[1]) 
 
         end_time = time.time()
         check_duration = end_time - start_time
@@ -211,7 +208,7 @@ def main():
         elif i < NUM_CHECKS:
              print(f"CYCLE INFO: Check took {check_duration:.2f}s. No need to sleep.")
 
-    print(f"--- PRODUCTION MONITORING RUN COMPLETED. ---")
+    print(f"--- FINAL VALIDATION TEST COMPLETED. ---")
 
 
 if __name__ == "__main__":
