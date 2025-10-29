@@ -5,8 +5,9 @@ import time
 import os
 import requests 
 from requests_toolbelt import sessions
+from bs4 import BeautifulSoup # Used for robust HTML parsing
 
-# --- CONFIGURATION (PRODUCTION SEARCH TERM VALIDATION) ---
+# --- CONFIGURATION (PRODUCTION SEARCH TERM TEST) ---
 
 # 1. Email Details (Read securely from GitHub Secrets)
 SMTP_SERVER = "smtp.gmail.com"  
@@ -20,18 +21,17 @@ PROXY_HOST = os.environ.get("PROXY_HOST")
 PROXY_USER = os.environ.get("PROXY_USER")
 PROXY_PASS = os.environ.get("PROXY_PASS")
 
-# 3. Target Details (FINAL VALIDATION TERMS)
+# 3. Target Details (TESTING MINIMAL PRODUCTION TERM)
 TARGETS = [
     {
         "url": "https://www.livexscores.com/?p=4&sport=tennis", 
-        "terms": ["- ret."], 
+        "terms": ["- ret."], # Standard monitoring term
         "type": "Retirement (In Play)"
     },
     {
-        "url": "https://www.livexscores.com/?p=3&sport=tennis", # Finished page
-        # --- VALIDATION TEST: Search for all relevant, stable terms ---
-        "terms": ["- ret.", "- wo."], 
-        "type": "Definitive Status (FINAL VALIDATION)"
+        "url": "https://www.livexscores.com/?p=3&sport=tennis", 
+        "terms": ["- ret."], # <--- FINAL TEST: Searching for bare minimum retirement flag
+        "type": "Definitive Status (Finished - RET Test)"
     }
 ]
 
@@ -81,7 +81,7 @@ def send_email_alert(subject, body):
         return False
 
 
-# --- CORE MONITORING LOGIC (Using Proxy) ---
+# --- CORE MONITORING LOGIC (Using Proxy + BeautifulSoup) ---
 
 def create_proxied_session():
     """Creates a requests session configured with the proxy credentials."""
@@ -108,7 +108,7 @@ def create_proxied_session():
 
 def monitor_page(session, target: dict):
     """
-    Monitors a single page using the provided proxied session.
+    Monitors a single page by fetching the raw HTML and searching using BeautifulSoup.
     """
     clean_url = target['url'].strip()
     
@@ -119,91 +119,3 @@ def monitor_page(session, target: dict):
         'Accept-Language': 'en-US,en;q=0.9',
         'Connection': 'keep-alive',
     }
-    
-    try:
-        print(f"NETWORK: Fetching {target['type']} data from {clean_url}...")
-        
-        # Use the passed session object for the request
-        response = session.get(clean_url, headers=headers, timeout=15)
-        response.raise_for_status() 
-        
-        page_text = response.text
-        found_terms = []
-        
-        # Check for each target term in the raw text
-        for term in target['terms']:
-            if term in page_text:
-                
-                context_lines = [line.strip() for line in page_text.split('\n') if term in line]
-
-                found_terms.append({
-                    "term": term,
-                    "context": "\n".join(context_lines)
-                })
-        
-        if found_terms:
-            print(f"DETECTION SUCCESS: Found required term(s) in {target['type']} page.")
-            
-            email_body = ""
-            subject_terms = []
-            
-            for item in found_terms:
-                subject_terms.append(item['term'])
-                email_body += (
-                    f"--- Status Found: {item['term']} ---\n"
-                    f"Contextual Line(s) from Page:\n"
-                    f"{item['context']}\n\n"
-                )
-
-            subject = f"ALERT: {target['type']} - Status Detected: {', '.join(subject_terms)}"
-            
-            send_email_alert(subject, email_body)
-            return True
-        else:
-            print(f"DETECTION FAILURE: No targets found in {target['type']} page.")
-            return False
-
-    except requests.exceptions.RequestException as e:
-        print(f"NETWORK ERROR: Failed to fetch {clean_url}: {e}")
-        return False
-    except Exception as e:
-        print(f"PROCESSING ERROR: during {target['type']} processing: {e}")
-        return False
-
-
-def main():
-    
-    NUM_CHECKS = 6
-    SLEEP_INTERVAL = 10 
-    
-    # Create the proxied session ONCE
-    session = create_proxied_session()
-    
-    print(f"--- Starting FINAL VALIDATION TEST: {NUM_CHECKS} checks for all production terms ---")
-    
-    for i in range(1, NUM_CHECKS + 1):
-        start_time = time.time()
-        print(f"\n--- RUN {i}/{NUM_CHECKS} ---")
-        
-        # Monitor the Finished page using the complex validation array
-        monitor_page(session, TARGETS[1]) 
-
-        end_time = time.time()
-        check_duration = end_time - start_time
-        
-        time_to_sleep = SLEEP_INTERVAL - check_duration
-        
-        if time_to_sleep > 0 and i < NUM_CHECKS:
-            print(f"CYCLE INFO: Sleeping for {time_to_sleep:.2f} seconds...")
-            time.sleep(time_to_sleep)
-        elif i < NUM_CHECKS:
-             print(f"CYCLE INFO: Check took {check_duration:.2f}s. No need to sleep.")
-
-    print(f"--- FINAL VALIDATION TEST COMPLETED. ---")
-
-
-if __name__ == "__main__":
-    try:
-        main()
-    except Exception as e:
-        print(f"FATAL SCRIPT ERROR: {e}")
