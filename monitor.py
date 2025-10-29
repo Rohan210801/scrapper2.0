@@ -189,4 +189,5 @@ if __name__ == "__main__":
         with sync_playwright() as playwright:
             main(playwright)
     except Exception as e:
-        print(f"FATAL S
+        # CORRECTED: Ensure the f-string is properly closed
+        print(f"FATAL SCRIPT ERROR: {e}")
