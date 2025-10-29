@@ -30,7 +30,7 @@ TARGETS = [
     {
         "url": "https://www.livexscores.com/?p=3&sport=tennis", # Finished page
         # --- VALIDATION TEST: Search for all relevant, stable terms ---
-        "terms": ["Finished", "- ret.", "- wo."], 
+        "terms": ["- ret.", "- wo."], 
         "type": "Definitive Status (FINAL VALIDATION)"
     }
 ]
