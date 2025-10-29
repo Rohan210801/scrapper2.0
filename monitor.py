@@ -25,13 +25,13 @@ PROXY_PASS = os.environ.get("PROXY_PASS")
 TARGETS = [
     {
         "url": "https://www.livescorehunter.com/tennis-livescore-live-streaming", 
-        "link_id": 'link[4]', # In Play Link ID (Not used in this specific test run)
+        "link_id": 'link[4]', 
         "terms": ["- ret."], 
         "type": "Retirement (In Play)"
     },
     {
         "url": "https://www.livescorehunter.com/tennis-livescore-live-streaming", 
-        "link_id": 'link[3]', # Finished Link ID
+        "link_id": 'link[3]', 
         # FINAL TEST: Search for a guaranteed country code (GBR)
         "terms": ["GBR"], 
         "type": "Definitive Status (Finished GBR TEST)"
@@ -111,7 +111,7 @@ def create_proxied_session():
 
 def monitor_page(session, target: dict):
     """
-    1. Fetches the main page to get the IFRAME URL from the link ID.
+    1. Fetches the main page to get the IFRAME URL from the link's onclick attribute.
     2. Fetches the content from the IFRAME URL directly.
     3. Searches the IFRAME content using BS4 for the status flag.
     """
@@ -134,16 +134,21 @@ def monitor_page(session, target: dict):
         
         soup = BeautifulSoup(response.text, 'html.parser')
         
-        # Find the specific link element using the 'link_id' provided (e.g., link[3] or link[4])
-        link_element = soup.find('a', id=target['link_id'])
+        # Find the specific link element using the 'onclick' attribute
+        link_element = soup.find('a', onclick=target['link_id'])
         
         if not link_element or not link_element.get('href'):
-            print(f"DETECTION ERROR: Could not find link element with ID {target['link_id']} or its href attribute.")
-            return False
+            # The test should fail here if the link ID is wrong, but let's assume the previous ID works
+            # We are now searching for the element based on the onclick attribute
+            link_element = soup.find('a', onclick=target['onclick_attr'])
+
+            if not link_element or not link_element.get('href'):
+                print(f"DETECTION ERROR: Could not find link element with onclick={target['onclick_attr']} or its href attribute.")
+                return False
             
-        # The href attribute contains the path to the data source
+        # The href attribute contains the full path to the data source
         iframe_src = link_element.get('href')
-        base_url = "https://www.livexscores.com/" 
+        base_url = "https://www.livexscores.com/"
         full_data_url = base_url + iframe_src
         print(f"DATA SOURCE FOUND: Directly scraping content from {full_data_url}")
 
@@ -173,6 +178,7 @@ def monitor_page(session, target: dict):
             if matching_lines:
                 found_terms.append({
                     "term": term,
+                    # Join the unique matching lines found by BS4
                     "context": "\n".join(matching_lines) 
                 })
         
