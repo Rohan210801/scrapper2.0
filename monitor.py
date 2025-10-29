@@ -6,7 +6,7 @@ import os
 import requests 
 from requests_toolbelt import sessions
 
-# --- CONFIGURATION (TEST MODE) ---
+# --- CONFIGURATION (FINAL VALIDATION TEST) ---
 
 # 1. Email Details (Read securely from GitHub Secrets)
 SMTP_SERVER = "smtp.gmail.com"  
@@ -29,17 +29,16 @@ TARGETS = [
     },
     {
         "url": "https://www.livexscores.com/?p=3&sport=tennis", # Finished page
-        # *** LIVE TEST TERM: Searching for the exact retirement substring ***
-        "terms": ["Jones Francesca (GBR) [71] - ret."], 
-        "type": "Definitive Status (Finished LIVE TEST)"
+        # *** FINAL TEST TERM: Searching for the status flag plus the unique bracketed rank ***
+        "terms": ["(GBR) [71] - ret."], 
+        "type": "Definitive Status (Finished FLAG TEST)"
     }
 ]
 
 
-# --- EMAIL ALERT FUNCTIONS ---
+# --- EMAIL ALERT FUNCTIONS (Unchanged) ---
 
 def send_email_alert(subject, body):
-    # This function logs success/failure explicitly
     if not all([SENDER_EMAIL, SENDER_PASSWORD, RECEIVER_EMAIL]):
         print("ERROR: Email credentials missing. Check GitHub Secrets.")
         return False
@@ -67,7 +66,6 @@ def send_email_alert(subject, body):
         msg.attach(MIMEText(html_body, 'html'))
         
         print(f"SMTP: Attempting connection to send email...")
-        # The success of this block confirms the SMTP connection worked
         with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
             server.starttls()
             server.login(SENDER_EMAIL, SENDER_PASSWORD)
@@ -134,6 +132,7 @@ def monitor_page(session, target: dict):
         
         # Check for each target term in the raw text
         for term in target['terms']:
+            # This search must find the raw text substring in the HTML source
             if term in page_text:
                 
                 context_lines = [line.strip() for line in page_text.split('\n') if term in line]
@@ -159,7 +158,7 @@ def monitor_page(session, target: dict):
 
             subject = f"ALERT: {target['type']} - Status Detected: {', '.join(subject_terms)}"
             
-            send_email_alert(subject, email_body) # This triggers the explicit SMTP logging
+            send_email_alert(subject, email_body)
             return True
         else:
             print(f"DETECTION FAILURE: No targets found in {target['type']} page.")
@@ -181,13 +180,13 @@ def main():
     # Create the proxied session ONCE
     session = create_proxied_session()
     
-    print(f"--- Starting TEST RUN: {NUM_CHECKS} checks for Jones Francesca retirement ---")
+    print(f"--- Starting FINAL TEST RUN: {NUM_CHECKS} checks for Retirement Flag ---")
     
     for i in range(1, NUM_CHECKS + 1):
         start_time = time.time()
         print(f"\n--- RUN {i}/{NUM_CHECKS} ---")
         
-        # We only run the Finished Test page check (TARGETS[1]) in this mode
+        # We only run the Finished Test page check in this mode
         monitor_page(session, TARGETS[1]) 
 
         end_time = time.time()
@@ -201,7 +200,7 @@ def main():
         elif i < NUM_CHECKS:
              print(f"CYCLE INFO: Check took {check_duration:.2f}s. No need to sleep.")
 
-    print(f"--- TEST RUN COMPLETED. Check log for SMTP success status. ---")
+    print(f"--- FINAL TEST RUN COMPLETED. Check log for SMTP success status. ---")
 
 
 if __name__ == "__main__":
