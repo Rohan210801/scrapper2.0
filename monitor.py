@@ -3,11 +3,10 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import time
 import os
-import requests 
-from requests_toolbelt import sessions
-from bs4 import BeautifulSoup # Used for robust HTML parsing
+from playwright.sync_api import sync_playwright, Playwright, TimeoutError
+import requests # Still needed for header utility only, but will be bypassed
 
-# --- CONFIGURATION (FINAL VALIDATION TEST) ---
+# --- CONFIGURATION (FINAL PRODUCTION MODE - PLAYWRIGHT) ---
 
 # 1. Email Details (Read securely from GitHub Secrets)
 SMTP_SERVER = "smtp.gmail.com"  
@@ -21,7 +20,7 @@ PROXY_HOST = os.environ.get("PROXY_HOST")
 PROXY_USER = os.environ.get("PROXY_USER")
 PROXY_PASS = os.environ.get("PROXY_PASS")
 
-# 3. Target Details (FINAL VALIDATION TERMS)
+# 3. Target Details (FINAL PRODUCTION SEARCH TERMS)
 TARGETS = [
     {
         "url": "https://www.livexscores.com/?p=4&sport=tennis", 
@@ -29,12 +28,17 @@ TARGETS = [
         "type": "Retirement (In Play)"
     },
     {
-        "url": "https://www.livexscores.com/?p=3&sport=tennis", # Finished page
-        # FINAL TEST: Search for a guaranteed country code (GBR)
-        "terms": ["GBR"], 
+        "url": "https://www.livexscores.com/?p=3&sport=tennis", 
+        # FINAL TEST TERM (Forcing test on GBR to confirm detection logic)
+        "terms": ["(GBR)"], 
         "type": "Definitive Status (Finished GBR TEST)"
     }
 ]
+
+# --- GLOBAL TIMEOUT CONSTANTS ---
+BROWSER_LAUNCH_TIMEOUT = 60000 
+NAVIGATION_TIMEOUT = 60000      
+SCORE_TABLE_ROW_SELECTOR = ".tmava" # We'll try to wait for this element
 
 
 # --- EMAIL ALERT FUNCTIONS (Unchanged) ---
@@ -50,7 +54,6 @@ def send_email_alert(subject, body):
         msg['To'] = RECEIVER_EMAIL
         msg['Subject'] = subject
         
-        # HTML body for a nice-looking email alert
         html_body = f"""
         <html>
           <body>
@@ -82,76 +85,44 @@ def send_email_alert(subject, body):
         return False
 
 
-# --- CORE MONITORING LOGIC (Using Proxy + BeautifulSoup) ---
+# --- CORE MONITORING LOGIC (Playwright + Proxy) ---
 
-def create_proxied_session():
-    """Creates a requests session configured with the proxy credentials."""
-    if not all([PROXY_HOST, PROXY_USER, PROXY_PASS]):
-        print("CRITICAL PROXY ERROR: Proxy credentials missing. Cannot start proxied session. Falling back to direct connection.")
-        return requests.Session() 
-
-    # Construct the authenticated proxy URL
-    if PROXY_USER and PROXY_PASS:
-        proxy_auth = f"{PROXY_USER}:{PROXY_PASS}@"
-    else:
-        proxy_auth = ""
-        
-    proxy_url = f"http://{proxy_auth}{PROXY_HOST}"
-    
-    # Create a session and set the proxy
-    session = requests.Session()
-    session.proxies = {
-        "http": proxy_url,
-        "https": proxy_url,
-    }
-    return session
-
-
-def monitor_page(session, target: dict):
+def monitor_page(browser, target: dict):
     """
-    Monitors a single page by fetching the raw HTML and searching using BeautifulSoup.
+    Monitors a single page using the Playwright headless browser forced to use the proxy.
     """
     clean_url = target['url'].strip()
     
-    # Masquerade headers
+    # Masquerade headers (Playwright does not automatically send all of these)
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.9',
-        'Connection': 'keep-alive',
     }
     
+    context = browser.new_context(user_agent=headers['User-Agent'])
+    page = context.new_page()
+
     try:
-        print(f"NETWORK: Fetching {target['type']} data from {clean_url}...")
+        print(f"BROWSER: Navigating to {target['type']} data from {clean_url} via proxy...")
         
-        # 1. Fetch raw content
-        response = session.get(clean_url, headers=headers, timeout=15)
-        response.raise_for_status() 
+        page.goto(clean_url, wait_until="domcontentloaded", timeout=NAVIGATION_TIMEOUT)
         
-        # 2. Parse the content with BeautifulSoup
-        soup = BeautifulSoup(response.text, 'html.parser')
-        
+        # Wait for a reliable score element after JS has executed
+        page.wait_for_selector(SCORE_TABLE_ROW_SELECTOR, timeout=20000) 
+        print(f"BROWSER SUCCESS: Score table rendered.")
+
+        # --- Mimic CTRL+F: Read all visible text ---
+        page_text = page.locator("body").inner_text()
         found_terms = []
         
-        # 3. Search for each term using the precise BeautifulSoup structure
         for term in target['terms']:
-            
-            # Use find_all(string=True) to grab all text nodes in the document
-            # This is the "human-like" search that ignores the <a> tag separating the text
-            all_text_nodes = soup.find_all(string=True)
-            
-            # Filter the text nodes to find lines that contain the target term
-            matching_lines = [
-                node.strip() for node in all_text_nodes 
-                if term in node 
-                and len(node.strip()) > 5 # Ignore small, junk matches
-            ]
+            if term in page_text:
+                
+                # Get surrounding context lines (this is now based on rendered text, not raw HTML)
+                context_lines = [line.strip() for line in page_text.split('\n') if term in line]
 
-            if matching_lines:
                 found_terms.append({
                     "term": term,
-                    # Join the unique matching lines found by BS4
-                    "context": "\n".join(matching_lines) 
+                    "context": "\n".join(context_lines)
                 })
         
         if found_terms:
@@ -176,12 +147,14 @@ def monitor_page(session, target: dict):
             print(f"DETECTION FAILURE: No targets found in {target['type']} page.")
             return False
 
-    except requests.exceptions.RequestException as e:
-        print(f"NETWORK ERROR: Failed to fetch {clean_url}: {e}")
+    except TimeoutError:
+        print(f"BROWSER TIMEOUT ERROR: Scraper timed out waiting for content on {clean_url}.")
         return False
     except Exception as e:
         print(f"PROCESSING ERROR: during {target['type']} processing: {e}")
         return False
+    finally:
+        context.close()
 
 
 def main():
@@ -189,34 +162,47 @@ def main():
     NUM_CHECKS = 6
     SLEEP_INTERVAL = 10 
     
-    # Create the proxied session ONCE
-    session = create_proxied_session()
+    # --- PROXY CONFIGURATION FOR PLAYWRIGHT LAUNCH ---
+    if PROXY_USER and PROXY_PASS:
+        proxy_server = f"http://{PROXY_USER}:{PROXY_PASS}@{PROXY_HOST}"
+    else:
+        proxy_server = f"http://{PROXY_HOST}"
     
-    print(f"--- Starting FINAL VALIDATION TEST: {NUM_CHECKS} checks for '(GBR)' ---")
+    proxy_config = {"server": proxy_server}
     
-    for i in range(1, NUM_CHECKS + 1):
-        start_time = time.time()
-        print(f"\n--- RUN {i}/{NUM_CHECKS} ---")
-        
-        # We only run the Finished Test page check in this mode
-        monitor_page(session, TARGETS[1]) 
-
-        end_time = time.time()
-        check_duration = end_time - start_time
-        
-        time_to_sleep = SLEEP_INTERVAL - check_duration
-        
-        if time_to_sleep > 0 and i < NUM_CHECKS:
-            print(f"CYCLE INFO: Sleeping for {time_to_sleep:.2f} seconds...")
-            time.sleep(time_to_sleep)
-        elif i < NUM_CHECKS:
-             print(f"CYCLE INFO: Check took {check_duration:.2f}s. No need to sleep.")
-
-    print(f"--- FINAL VALIDATION TEST COMPLETED. ---")
-
-
-if __name__ == "__main__":
+    # Ensure Playwright browser binaries are installed
+    os.system("playwright install chromium")
+    
+    print(f"--- Starting FINAL TEST RUN (Playwright/Proxy): {NUM_CHECKS} checks ---")
+    
     try:
-        main()
+        with sync_playwright() as playwright:
+            
+            # Launch browser ONCE, forcing it to use the authenticated proxy
+            browser = playwright.chromium.launch(timeout=BROWSER_LAUNCH_TIMEOUT, proxy=proxy_config)
+            print(f"--- Browser launched once via proxy: {PROXY_HOST} ---")
+            
+            for i in range(1, NUM_CHECKS + 1):
+                start_time = time.time()
+                print(f"\n--- RUN {i}/{NUM_CHECKS} ---")
+                
+                # We only run the Finished Test page check in this mode
+                monitor_page(browser, TARGETS[1]) 
+
+                end_time = time.time()
+                check_duration = end_time - start_time
+                
+                time_to_sleep = SLEEP_INTERVAL - check_duration
+                
+                if time_to_sleep > 0 and i < NUM_CHECKS:
+                    print(f"CYCLE INFO: Sleeping for {time_to_sleep:.2f} seconds...")
+                    time.sleep(time_to_sleep)
+                elif i < NUM_CHECKS:
+                     print(f"CYCLE INFO: Check took {check_duration:.2f}s. No need to sleep.")
+
+            browser.close()
+            print(f"--- FINAL TEST RUN COMPLETED. ---")
+
     except Exception as e:
         print(f"FATAL SCRIPT ERROR: {e}")
+        print("HINT: If this is a Playwright/Chromium error, ensure you ran 'playwright install chromium'.")
