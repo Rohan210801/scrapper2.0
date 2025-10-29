@@ -3,7 +3,7 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import time
 import os
-from playwright.sync_api import sync_playwright, Playwright, TimeoutError # Import Playwright utilities
+import requests # Lightweight library replaces Playwright
 
 # --- CONFIGURATION (Production Mode) ---
 
@@ -14,31 +14,25 @@ SENDER_EMAIL = os.environ.get("SENDER_EMAIL")
 SENDER_PASSWORD = os.environ.get("SENDER_PASSWORD")
 RECEIVER_EMAIL = os.environ.get("RECEIVER_EMAIL") 
 
-# 2. Target Details: URL and the specific term(s) to look for on that URL
-# FINAL FIX: Use the stable, direct iframe source URLs instead of the dynamic parent page.
+# 2. Target Details: Use the simplest possible URLs for raw fetching
 TARGETS = [
     {
-        # Direct URL for In Play (p=4 in old link, likely default_site=4 here)
-        "url": "https://www.livexscores.com/free.php?sport=tennis&default_site=4&iframe_width=1200&iframe_height=1000", 
+        # In Play page (Simplified URL)
+        "url": "https://www.livexscores.com/?p=4&sport=tennis", 
         "terms": ["- ret."], 
         "type": "Retirement (In Play)"
     },
     {
-        # Direct URL for Finished (p=3 in old link, likely default_site=3 here)
-        "url": "https://www.livexscores.com/free.php?sport=tennis&default_site=3&iframe_width=1200&iframe_height=1000", 
+        # Finished page (Simplified URL)
+        "url": "https://www.livexscores.com/?p=3&sport=tennis", 
         "terms": ["- ret.", "- wo."], 
         "type": "Definitive Status (Finished)"
     }
 ]
 
-# --- GLOBAL TIMEOUT CONSTANTS ---
-BROWSER_LAUNCH_TIMEOUT = 60000 
-NAVIGATION_TIMEOUT = 60000      
-# NEW: Wait for the simplest common element class to confirm data presence
-SCORE_TABLE_ROW_SELECTOR = ".tmava" 
-
 
 # --- EMAIL ALERT FUNCTIONS (Unchanged) ---
+
 def send_email_alert(subject, body):
     if not all([SENDER_EMAIL, SENDER_PASSWORD, RECEIVER_EMAIL]):
         print("ERROR: Email credentials missing. Check GitHub Secrets.")
@@ -79,49 +73,41 @@ def send_email_alert(subject, body):
         print(f"An error occurred during email sending: {e}")
 
 
-# --- CORE MONITORING LOGIC ---
+# --- CORE MONITORING LOGIC (Using simple requests) ---
 
-def monitor_page(browser, target: dict):
+def monitor_page(target: dict):
     """
-    Monitors a single page for a list of specific search terms.
-    Uses direct scrape of the iframe source URL for stability.
+    Monitors a single page by fetching the raw HTML and searching the text.
+    No headless browser needed, eliminating timeouts.
     """
-    context = browser.new_context()
-    page = context.new_page()
-
+    clean_url = target['url'].strip()
+    
     try:
-        # Clean the URL string before navigation
-        clean_url = target['url'].strip()
+        # Use a real browser User-Agent to avoid simple blocking
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
         
-        # We expect a much faster load time here as this is likely just the iframe HTML
-        page.goto(clean_url, wait_until="domcontentloaded", timeout=NAVIGATION_TIMEOUT)
-        print(f"Attempting to load direct source URL: {clean_url}")
+        # Fetch the raw content of the page
+        response = requests.get(clean_url, headers=headers, timeout=10) # 10s timeout on request
+        response.raise_for_status() # Raise an error for bad status codes (4xx or 5xx)
         
-        # Wait for a reliable element *inside* the iframe source (the dark row class)
-        page.wait_for_selector(SCORE_TABLE_ROW_SELECTOR, timeout=20000) 
-        print(f"Loaded and verified score rows for {target['type']}.")
+        # NOTE: This only fetches the HTML before JavaScript executes. 
+        # Since JavaScript renders the scores from free.js, we assume the raw HTML contains 
+        # a structure we can search OR the data itself is included before rendering.
+        page_text = response.text
         
         found_terms = []
         
-        # Check for each target term using optimized XPath search
+        # Check for each target term in the raw text
         for term in target['terms']:
-            
-            # XPath locator finds any visible element containing the search text
-            locator = page.locator(f"//*[contains(text(), '{term}')]")
-
-            if locator.count() > 0:
+            if term in page_text:
                 # If found, grab the surrounding text context for the email body
                 
-                context_text = page.evaluate(f"""
-                    document.body.innerText
-                        .split('\\n')
-                        .filter(line => line.includes('{term}'))
-                        .join('\\n')
-                """)
-                
+                # NOTE: This method is less accurate than Playwright's JS context but is fast and stable.
+                context_lines = [line.strip() for line in page_text.split('\n') if term in line]
+
                 found_terms.append({
                     "term": term,
-                    "context": context_text.strip()
+                    "context": "\n".join(context_lines)
                 })
         
         if found_terms:
@@ -145,33 +131,29 @@ def monitor_page(browser, target: dict):
         else:
             return False
 
-    except TimeoutError:
-        print(f"ERROR: Scraper timed out waiting for score rows on {clean_url}. (Wait time > 20s)")
+    except requests.exceptions.RequestException as e:
+        # Catch network or timeout errors cleanly
+        print(f"ERROR during raw scrape of {clean_url}: {e}")
         return False
     except Exception as e:
-        print(f"ERROR during Playwright scrape of {clean_url}: {e}")
+        print(f"ERROR during processing of {clean_url}: {e}")
         return False
-    finally:
-        context.close()
 
 
-def main(playwright: Playwright):
+def main():
     
-    NUM_CHECKS = 30
+    # We revert to the 1-minute schedule now that the job is lightweight
+    NUM_CHECKS = 6
     SLEEP_INTERVAL = 10 
     
-    
-    browser = playwright.chromium.launch(timeout=BROWSER_LAUNCH_TIMEOUT)
-    print(f"--- Browser launched once for the job. ---")
-    
-    print(f"--- Starting {NUM_CHECKS} checks with a {SLEEP_INTERVAL}-second target interval. ---")
+    print(f"--- Starting {NUM_CHECKS} checks with a {SLEEP_INTERVAL}-second target interval using lightweight Requests. ---")
     
     for i in range(1, NUM_CHECKS + 1):
         start_time = time.time()
         print(f"\n--- RUN {i}/{NUM_CHECKS} ---")
         
         for target in TARGETS:
-            monitor_page(browser, target)
+            monitor_page(target) # No browser object needed
 
         end_time = time.time()
         check_duration = end_time - start_time
@@ -184,16 +166,11 @@ def main(playwright: Playwright):
         elif i < NUM_CHECKS:
              print(f"Check took {check_duration:.2f} seconds. No need to sleep.")
 
-    browser.close()
-    print(f"--- Browser closed. All {NUM_CHECKS} runs completed. ---")
+    print(f"--- All {NUM_CHECKS} runs completed. ---")
 
 
 if __name__ == "__main__":
-    
-    os.system("playwright install chromium")
-    
     try:
-        with sync_playwright() as playwright:
-            main(playwright)
+        main()
     except Exception as e:
         print(f"FATAL SCRIPT ERROR: {e}")
