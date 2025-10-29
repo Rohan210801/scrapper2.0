@@ -19,22 +19,15 @@ jobs:
         with:
           python-version: '3.x'
 
-      - name: Install dependencies and browser system libraries (The Fix)
+      - name: Install dependencies and browser binaries
         run: |
-          # 1. Install Python packages (requests, requests-html)
+          # 1. Install Python packages from requirements.txt
           pip install -r requirements.txt
           
-          # 2. Install modern system libraries for headless Chromium (Pyppeteer dependency)
-          # This corrected list resolves the "exit code 100" error on current Ubuntu runners.
-          sudo apt-get update 
-          sudo apt-get install -y \
-            libgbm-dev \
-            libnss3 \
-            libasound2 \
-            libatk-bridge2.0-0 \
-            libxkbcommon0 \
-            libgtk-3-0 \
-            chromium-browser
+          # 2. Install Playwright browser binaries (Chromium)
+          # This command is the most reliable way to set up the headless browser
+          # in the GitHub Actions environment.
+          playwright install chromium
 
       - name: Run Scraper (30-second check loop)
         # Passes the secrets securely as environment variables to the Python script
