@@ -1,12 +1,10 @@
-# .github/workflows/schedule.yml
-
 name: Live Score Monitor
 
 on:
-  # Cron expression: Runs every minute ('*/1' for minute, '*' for hour/day/month/weekday)
+  # Cron expression: Runs every minute (shortest interval supported by GitHub)
   schedule:
     - cron: '*/1 * * * *' 
-  # Allows manual triggering from the GitHub Actions tab for testing
+  # Allows manual triggering from the GitHub Actions tab for easy testing
   workflow_dispatch:
 
 jobs:
@@ -21,15 +19,58 @@ jobs:
         with:
           python-version: '3.x'
 
-      - name: Install dependencies and browser
+      - name: Install dependencies and browser system libraries
         run: |
+          # 1. Install Python packages from requirements.txt
           pip install -r requirements.txt
-          # chromium-browser is required by requests-html to run JavaScript (the scores)
+          
+          # 2. Install extensive list of system libraries required by Chromium/Pyppeteer
+          # This step specifically fixes the common "Process completed with exit code 1"
+          # when rendering dynamic web pages.
           sudo apt-get update 
-          sudo apt-get install -y chromium-browser
+          sudo apt-get install -y \
+            gconf-service \
+            libasound2 \
+            libatk1.0-0 \
+            libc6 \
+            libcairo2 \
+            libcups2 \
+            libdbus-1-3 \
+            libexpat1 \
+            libfontconfig1 \
+            libgcc1 \
+            libgconf-2-4 \
+            libgdk-pixbuf2.0-0 \
+            libglib2.0-0 \
+            libgtk-3-0 \
+            libnspr4 \
+            libpango-1.0-0 \
+            libpangocairo-1.0-0 \
+            libstdc++6 \
+            libx11-6 \
+            libx11-xcb1 \
+            libxcb1 \
+            libxcomposite1 \
+            libxcursor1 \
+            libxdamage1 \
+            libxext6 \
+            libxfixes3 \
+            libxi6 \
+            libxrandr2 \
+            libxrender1 \
+            libxss1 \
+            libxtst6 \
+            ca-certificates \
+            fonts-liberation \
+            libappindicator1 \
+            libnss3 \
+            lsb-release \
+            xdg-utils \
+            wget \
+            chromium-browser
 
-      - name: Run Scraper
-        # The script accesses the secrets as environment variables here
+      - name: Run Scraper (30-second check loop)
+        # Passes the secrets securely as environment variables to the Python script
         env:
           SENDER_EMAIL: ${{ secrets.SENDER_EMAIL }}
           SENDER_PASSWORD: ${{ secrets.SENDER_PASSWORD }}
