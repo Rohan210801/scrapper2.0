@@ -5,7 +5,7 @@ import time
 import os
 from playwright.sync_api import sync_playwright, Playwright, TimeoutError # Import Playwright utilities
 
-# --- CONFIGURATION ---
+# --- CONFIGURATION (Production Mode) ---
 
 # 1. Email Details (Read securely from GitHub Secrets)
 SMTP_SERVER = "smtp.gmail.com"  
@@ -23,16 +23,16 @@ TARGETS = [
     },
     {
         "url": "https://www.livexscores.com/?p=3&sport=tennis", # Finished page
-        "terms": ["- ret.", "- wo."], # Production Search Terms
+        "terms": ["- ret.", "- wo."], 
         "type": "Definitive Status (Finished)"
     }
 ]
 
 # --- GLOBAL TIMEOUT CONSTANTS ---
-BROWSER_LAUNCH_TIMEOUT = 60000  # 60 seconds 
-NAVIGATION_TIMEOUT = 60000      # 60 seconds
-# NEW FIX: Target the class of the dynamic score tables
-SCORE_TABLE_ROW_SELECTOR = ".tabulkatd2" 
+BROWSER_LAUNCH_TIMEOUT = 60000 
+NAVIGATION_TIMEOUT = 60000      
+# Using the stable class from your HTML context
+SCORES_CONTAINER_SELECTOR = "#allzapasy" 
 
 
 # --- EMAIL ALERT FUNCTIONS (Unchanged) ---
@@ -82,19 +82,20 @@ def send_email_alert(subject, body):
 def monitor_page(browser, target: dict):
     """
     Monitors a single page for a list of specific search terms.
-    Uses the brute-force wait method for maximum stability.
     """
     context = browser.new_context()
     page = context.new_page()
 
     try:
-        page.goto(target['url'], wait_until="domcontentloaded", timeout=NAVIGATION_TIMEOUT)
+        # --- FIX: Clean the URL string to remove any trailing whitespace/punctuation ---
+        clean_url = target['url'].strip()
         
-        # --- BRUTE-FORCE FIX: Wait 5 seconds, then wait for the specific table class ---
-        # This addresses subtle JavaScript timing issues where the element appears slowly.
-        time.sleep(5)
-        page.wait_for_selector(SCORE_TABLE_ROW_SELECTOR, timeout=20000) 
-        print(f"Loaded and verified content table for {target['type']}.")
+        page.goto(clean_url, wait_until="domcontentloaded", timeout=NAVIGATION_TIMEOUT)
+        print(f"Attempting to load URL: {clean_url}")
+        
+        # Wait for the unique #allzapasy ID to confirm dynamic content load
+        page.wait_for_selector(SCORES_CONTAINER_SELECTOR, timeout=20000) 
+        print(f"Loaded and verified content container for {target['type']}.")
         
         found_terms = []
         
@@ -141,10 +142,10 @@ def monitor_page(browser, target: dict):
             return False
 
     except TimeoutError:
-        print(f"ERROR: Scraper timed out waiting for scores table on {target['url']}. (Wait time > 20s)")
+        print(f"ERROR: Scraper timed out waiting for content container on {clean_url}. (Wait time > 20s)")
         return False
     except Exception as e:
-        print(f"ERROR during Playwright scrape of {target['url']}: {e}")
+        print(f"ERROR during Playwright scrape of {clean_url}: {e}")
         return False
     finally:
         context.close()
